@@ -1,3 +1,3 @@
 # LambdaHive
 
-add description of LambdaHive here
+AI for the game Hive
