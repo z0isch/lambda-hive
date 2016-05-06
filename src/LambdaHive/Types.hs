@@ -10,8 +10,20 @@ import qualified Data.Set   as Set
 data HivePlayer = Player1 | Player2
   deriving (Show, Eq, Ord)
 
+playerString :: HivePlayer -> String
+playerString Player1 = "w"
+playerString Player2 = "b"
+
 data PieceType = Ant | Queen | Beetle | Grasshopper | Spider
   deriving (Show, Eq, Ord)
+
+pieceString :: PieceType -> String
+pieceString Ant = "A"
+pieceString Queen = "Q"
+pieceString Beetle = "B"
+pieceString Grasshopper = "G"
+pieceString Spider = "S"
+
 startingHand :: [PieceType]
 startingHand = [Ant,Ant,Ant,Queen,Beetle,Beetle,Grasshopper,Grasshopper,Grasshopper,Spider,Spider]
 
@@ -23,6 +35,7 @@ data HivePiece = HivePiece
   { hPlayer    :: HivePlayer
   , hPieceId   :: PieceId
   , hPieceType :: PieceType
+  , hCannoicalId :: String
   }
   deriving (Show, Eq, Ord)
 
@@ -87,7 +100,41 @@ circleBS = fromJust $ placePiece bs8 True (1,-1,0) Queen Player1
         bs8 = fromJust $ placePiece bs7 True (1,0,1) Beetle Player1
 
 validPlacementSpots :: GameState -> [PieceCoordinate]
-validPlacementSpots _ = undefined--concatMap (\p -> oneAway pcs p Queen) pcs \\ pcs
+validPlacementSpots gs = filter valid possibles
+  where bs = gsBoard gs
+        pcs = fst bs
+        cs = Map.keys pcs
+        possibles = nub $ concatMap (\p -> oneAway cs p Queen) cs \\ cs
+        firstTurn = if gsCurrPlayer gs == Player1
+                    then gsTurn gs == 0
+                    else gsTurn gs == 1
+        wrongPlayer c = (> 0) $ length $ Map.filter (\p2 -> hPlayer p2 /= gsCurrPlayer gs) (topOfStackAdjacents c)
+        topOfStackAdjacents c = Map.filterWithKey (\k _ -> topOfTheStack bs k) (adjacents c)
+        adjacents c = Map.filterWithKey (\k _ -> adjacentCoords c k) pcs
+        valid c
+          | c `Map.member` pcs = False
+          | not firstTurn && wrongPlayer c = False
+          | otherwise = True
+
+validPlacementTypes :: GameState -> [PieceType]
+validPlacementTypes gs
+  | not (playedBee gs) && gsCurrPlayer gs == Player1 && gsTurn gs == 6 = [Queen]
+  | not (playedBee gs) && gsCurrPlayer gs == Player2 && gsTurn gs == 7 = [Queen]
+  | otherwise = nub $ currPlayersHand gs
+
+placePiece :: BoardState -> Bool -> PieceCoordinate -> PieceType -> HivePlayer -> Maybe BoardState
+placePiece bs@(pcs, ba) firstTurn c t p
+  | c `Map.member` pcs = Nothing
+  | not firstTurn && wrongPlayer = Nothing
+  | otherwise = Just (newMap, newGraph)
+  where
+    newGraph = buildG (0,Map.size pcs) $ edges ba ++ concatMap ((\i -> [(i,newPieceId),(newPieceId,i)]) . hPieceId) (Map.elems adjacents)
+    newMap = Map.insert c (HivePiece p newPieceId t "") pcs
+    newPieceId = Map.size pcs
+    wrongPlayer = (> 0) $ length $ Map.filter (\p2 -> hPlayer p2 /= p) topOfStackAdjacents
+    topOfStackAdjacents = Map.filterWithKey (\k _ -> topOfTheStack bs k) adjacents
+    adjacents = Map.filterWithKey (\k _ -> adjacentCoords c k) pcs
+
 
 validPieceMoves :: GameState -> PieceCoordinate -> [PieceCoordinate]
 validPieceMoves gs c
@@ -195,7 +242,13 @@ unsafeSkipTurn :: GameState -> GameState
 unsafeSkipTurn gs = GameState (nextPlayer gs) (gsTurn gs + 1) (gsBoard gs) (gsHand1 gs) (gsHand2 gs)
 
 unsafeMovePiece :: GameState -> PieceCoordinate -> PieceCoordinate -> GameState
-unsafeMovePiece gs c1 c2 = GameState (nextPlayer gs) (gsTurn gs + 1) (newMap, newGraph) (gsHand1 gs) (gsHand2 gs)
+unsafeMovePiece gs c1 c2 = GameState
+                         { gsCurrPlayer = nextPlayer gs
+                         , gsTurn = gsTurn gs + 1
+                         , gsBoard = (newMap, newGraph)
+                         , gsHand1 = gsHand1 gs
+                         , gsHand2 = gsHand2 gs
+                         }
   where bs = gsBoard gs
         pcs = fst bs
         ba = snd bs
@@ -208,28 +261,27 @@ unsafeMovePiece gs c1 c2 = GameState (nextPlayer gs) (gsTurn gs + 1) (newMap, ne
         newGraph = buildG (0,Map.size newMap - 1) $ oldEdges ++ newEdges
 
 unsafePlacePiece :: GameState -> PieceCoordinate -> PieceType -> GameState
-unsafePlacePiece gs c t = GameState (nextPlayer gs) (gsTurn gs + 1) (newMap, newGraph) hand1 hand2
+unsafePlacePiece gs c t = GameState
+                        { gsCurrPlayer = nextPlayer gs
+                        , gsTurn = gsTurn gs + 1
+                        , gsBoard = (newMap, newGraph)
+                        , gsHand1 = hand1
+                        , gsHand2 = hand2
+                        }
   where
     bs = gsBoard gs
     pcs = fst bs
     ba = snd bs
-    newGraph = buildG (0,Map.size pcs) $ edges ba ++ concatMap ((\i -> [(i,newPieceId),(newPieceId,i)]) . hPieceId) (Map.elems adjacents)
-    newMap = Map.insert c (HivePiece (gsCurrPlayer gs) newPieceId t) pcs
+    bothWays i = [(i,newPieceId),(newPieceId,i)]
+    newEdges = edges ba ++ concatMap (bothWays . hPieceId) (Map.elems adjacents)
+    newGraph = buildG (0,Map.size pcs) newEdges
+    connonicalName = playerString (gsCurrPlayer gs)
+                    ++ pieceString t
+                    ++ if t /= Queen then show (numOfPieceType + 1) else ""
+    numOfPieceType = Map.size $ Map.filter (\p-> hPieceType p == t) pcs
+    newMap = Map.insert c (HivePiece (gsCurrPlayer gs) newPieceId t connonicalName) pcs
     newPieceId = Map.size pcs
     adjacents = Map.filterWithKey (\k _ -> adjacentCoords c k) pcs
     nextHand = delete t $ currPlayersHand gs
     hand1 = if gsCurrPlayer gs == Player1 then nextHand else gsHand1 gs
     hand2 = if gsCurrPlayer gs == Player2 then nextHand else gsHand2 gs
-
-placePiece :: BoardState -> Bool -> PieceCoordinate -> PieceType -> HivePlayer -> Maybe BoardState
-placePiece bs@(pcs, ba) firstTurn c t p
-  | c `Map.member` pcs = Nothing
-  | not firstTurn && wrongPlayer = Nothing
-  | otherwise = Just (newMap, newGraph)
-  where
-    newGraph = buildG (0,Map.size pcs) $ edges ba ++ concatMap ((\i -> [(i,newPieceId),(newPieceId,i)]) . hPieceId) (Map.elems adjacents)
-    newMap = Map.insert c (HivePiece p newPieceId t) pcs
-    newPieceId = Map.size pcs
-    wrongPlayer = (> 0) $ length $ Map.filter (\p2 -> hPlayer p2 /= p) topOfStackAdjacents
-    topOfStackAdjacents = Map.filterWithKey (\k _ -> topOfTheStack bs k) adjacents
-    adjacents = Map.filterWithKey (\k _ -> adjacentCoords c k) pcs
