@@ -9,8 +9,11 @@ import qualified Data.Set   as Set
 
 data HivePlayer = Player1 | Player2
   deriving (Show, Eq, Ord)
+
 data PieceType = Ant | Queen | Beetle | Grasshopper | Spider
   deriving (Show, Eq, Ord)
+startingHand :: [PieceType]
+startingHand = [Ant,Ant,Ant,Queen,Beetle,Beetle,Grasshopper,Grasshopper,Grasshopper,Spider,Spider]
 
 type PieceId = Int
 --Axial coordinates with height (x,y,height) http://www.redblobgames.com/grids/hexagons/
@@ -25,17 +28,36 @@ data HivePiece = HivePiece
 
 type BoardAdjecency = Graph
 type BoardState = (Map PieceCoordinate HivePiece, BoardAdjecency)
+type TurnNumber = Int
 type PlayerHand = [PieceType]
-type GameState = (HivePlayer,BoardState,PlayerHand,PlayerHand)
+
+data GameState = GameState
+  { gsCurrPlayer :: HivePlayer
+  , gsTurn       :: TurnNumber
+  , gsBoard      :: BoardState
+  , gsHand1      :: PlayerHand
+  , gsHand2      :: PlayerHand
+  }
+  deriving (Show, Eq, Ord)
+
+nextPlayer :: GameState -> HivePlayer
+nextPlayer gs
+  | gsCurrPlayer gs == Player1 = Player2
+  | otherwise = Player1
+
+currPlayersHand :: GameState -> PlayerHand
+currPlayersHand gs
+    | gsCurrPlayer gs == Player1 = gsHand1 gs
+    | otherwise = gsHand2 gs
+
+playedBee :: GameState -> Bool
+playedBee = notElem Queen . currPlayersHand
 
 data Neighbor = TopLeftN | LeftN | BottomLeftN | BottomRightN | RightN | TopRightN
   deriving (Show, Eq, Ord)
 
 allDirections :: [Neighbor]
 allDirections = [TopLeftN,LeftN,BottomLeftN,BottomRightN,RightN,TopRightN]
-
-startingHand :: [PieceType]
-startingHand = [Ant,Ant,Ant,Queen,Beetle,Beetle,Grasshopper,Grasshopper,Grasshopper,Spider,Spider]
 
 emptyBS :: BoardState
 emptyBS = (Map.empty, buildG (0,0) [])
@@ -48,9 +70,11 @@ testBS2 = fromJust $ placePiece testBS1 False (1,0,0) Ant Player1
 testBS3 :: BoardState
 testBS3 = fromJust $ placePiece testBS2 False (-2,0,0) Ant Player2
 testBS4 :: BoardState
-testBS4 = fromJust $ placePiece testBS3 False (1,-1,0) Grasshopper Player1
+testBS4 = fromJust $ placePiece testBS3 False (1,-1,0) Ant Player1
 testBS5 :: BoardState
 testBS5 = fromJust $ placePiece testBS4 False (-3,0,0) Grasshopper Player2
+testGS5 :: GameState
+testGS5 = GameState Player1 6 testBS5 startingHand startingHand
 circleBS :: BoardState
 circleBS = fromJust $ placePiece bs8 True (1,-1,0) Queen Player1
   where bs1 = fromJust $ placePiece emptyBS True (0,-1,0) Queen Player1
@@ -62,11 +86,17 @@ circleBS = fromJust $ placePiece bs8 True (1,-1,0) Queen Player1
         bs7 = fromJust $ placePiece bs6 True (0,-1,1) Beetle Player1
         bs8 = fromJust $ placePiece bs7 True (1,0,1) Beetle Player1
 
-pieceMoves :: BoardState -> PieceCoordinate -> [PieceCoordinate]
-pieceMoves bs@(pcs,_) c
+validPlacementSpots :: GameState -> [PieceCoordinate]
+validPlacementSpots _ = undefined--concatMap (\p -> oneAway pcs p Queen) pcs \\ pcs
+
+validPieceMoves :: GameState -> PieceCoordinate -> [PieceCoordinate]
+validPieceMoves gs c
+  | not $ playedBee gs = []
   | not $ topOfTheStack bs c = []
   | not $ oneHiveRuleSatisfied bs c = []
   | otherwise = pieceTypeMoves (Map.keys pcs) c (hPieceType $ pcs Map.! c)
+  where bs = gsBoard gs
+        pcs = fst bs
 
 pieceTypeMoves :: [PieceCoordinate] -> PieceCoordinate -> PieceType -> [PieceCoordinate]
 pieceTypeMoves pcs c Queen = oneSpaceMove pcs Queen c
@@ -114,15 +144,15 @@ canSlide pcs c1 c2
   | dir TopRightN = slideable [RightN,TopLeftN]
   | dir BottomLeftN = slideable [LeftN,BottomRightN]
   | otherwise = False
-  where dir d = nonHeightEq (getNeighbor c1 d) c2
+  where dir d = axialEq (getNeighbor c1 d) c2
         slideable xs = minimum (map (stackHeight pcs . getNeighbor c1) xs) <= maxStackHeight
         maxStackHeight = maximum [stackHeight pcs c2, stackHeight pcs c1 - 1]
 
-nonHeightEq :: PieceCoordinate -> PieceCoordinate -> Bool
-nonHeightEq (x,y,_) (x2,y2,_) = x == x2 && y==y2
+axialEq :: PieceCoordinate -> PieceCoordinate -> Bool
+axialEq (x,y,_) (x2,y2,_) = x == x2 && y==y2
 
 stackHeight :: [PieceCoordinate] -> PieceCoordinate -> Int
-stackHeight pcs c = genericLength $ filter (nonHeightEq c) pcs
+stackHeight pcs c = genericLength $ filter (axialEq c) pcs
 
 oneAway :: [PieceCoordinate] -> PieceCoordinate -> PieceType-> [PieceCoordinate]
 oneAway pcs (x,y,_) Beetle = groundLevel ++ beetleLevel
@@ -149,6 +179,11 @@ topOfTheStack (pcs,_) (x,y,h) = (== h) $ maximum
                                   $ filter (\(x1,y1,_) -> x==x1 && y==y1)
                                   $ Map.keys pcs
 
+adjacentCoords :: PieceCoordinate -> PieceCoordinate -> Bool
+adjacentCoords c1 c2
+  | axialEq c1 c2 = True
+  | otherwise = any (\d -> axialEq (getNeighbor c1 d) c2) allDirections
+
 removePiece :: BoardState -> PieceCoordinate -> BoardState
 removePiece (pcs,ba) c = (newMap, newGraph)
   where
@@ -156,7 +191,37 @@ removePiece (pcs,ba) c = (newMap, newGraph)
     removedId = hPieceId $ pcs Map.! c
     newGraph = buildG (0,Map.size pcs-1) $ filter (\(e1,e2) -> e1 /= removedId && e2 /= removedId) (edges ba)
 
-placePiece ::  BoardState -> Bool -> PieceCoordinate -> PieceType -> HivePlayer -> Maybe BoardState
+unsafeSkipTurn :: GameState -> GameState
+unsafeSkipTurn gs = GameState (nextPlayer gs) (gsTurn gs + 1) (gsBoard gs) (gsHand1 gs) (gsHand2 gs)
+
+unsafeMovePiece :: GameState -> PieceCoordinate -> PieceCoordinate -> GameState
+unsafeMovePiece gs c1 c2 = GameState (nextPlayer gs) (gsTurn gs + 1) (newMap, newGraph) (gsHand1 gs) (gsHand2 gs)
+  where bs = gsBoard gs
+        pcs = fst bs
+        ba = snd bs
+        piece = pcs Map.! c1
+        pieceId = hPieceId piece
+        newMap = Map.insert c2 piece $ Map.delete c1 pcs
+        newEdges = concatMap ((\i -> [(i,pieceId),(pieceId,i)]) . hPieceId) (Map.elems adjacents)
+        oldEdges = filter (\(e1,e2) -> e1 /= pieceId && e2 /= pieceId) (edges ba)
+        adjacents = Map.filterWithKey (\k _ -> adjacentCoords c2 k) pcs
+        newGraph = buildG (0,Map.size newMap - 1) $ oldEdges ++ newEdges
+
+unsafePlacePiece :: GameState -> PieceCoordinate -> PieceType -> GameState
+unsafePlacePiece gs c t = GameState (nextPlayer gs) (gsTurn gs + 1) (newMap, newGraph) hand1 hand2
+  where
+    bs = gsBoard gs
+    pcs = fst bs
+    ba = snd bs
+    newGraph = buildG (0,Map.size pcs) $ edges ba ++ concatMap ((\i -> [(i,newPieceId),(newPieceId,i)]) . hPieceId) (Map.elems adjacents)
+    newMap = Map.insert c (HivePiece (gsCurrPlayer gs) newPieceId t) pcs
+    newPieceId = Map.size pcs
+    adjacents = Map.filterWithKey (\k _ -> adjacentCoords c k) pcs
+    nextHand = delete t $ currPlayersHand gs
+    hand1 = if gsCurrPlayer gs == Player1 then nextHand else gsHand1 gs
+    hand2 = if gsCurrPlayer gs == Player2 then nextHand else gsHand2 gs
+
+placePiece :: BoardState -> Bool -> PieceCoordinate -> PieceType -> HivePlayer -> Maybe BoardState
 placePiece bs@(pcs, ba) firstTurn c t p
   | c `Map.member` pcs = Nothing
   | not firstTurn && wrongPlayer = Nothing
@@ -168,8 +233,3 @@ placePiece bs@(pcs, ba) firstTurn c t p
     wrongPlayer = (> 0) $ length $ Map.filter (\p2 -> hPlayer p2 /= p) topOfStackAdjacents
     topOfStackAdjacents = Map.filterWithKey (\k _ -> topOfTheStack bs k) adjacents
     adjacents = Map.filterWithKey (\k _ -> adjacentCoords c k) pcs
-
-adjacentCoords :: PieceCoordinate -> PieceCoordinate -> Bool
-adjacentCoords c1 c2
-  | nonHeightEq c1 c2 = True
-  | otherwise = any (\d -> nonHeightEq (getNeighbor c1 d) c2) allDirections
