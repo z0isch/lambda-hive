@@ -48,13 +48,13 @@ testBS2 = fromJust $ placePiece testBS1 False (1,0,0) Ant Player1
 testBS3 :: BoardState
 testBS3 = fromJust $ placePiece testBS2 False (-2,0,0) Ant Player2
 testBS4 :: BoardState
-testBS4 = fromJust $ placePiece testBS3 False (1,-1,0) Beetle Player1
+testBS4 = fromJust $ placePiece testBS3 False (1,-1,0) Grasshopper Player1
 testBS5 :: BoardState
-testBS5 = fromJust $ placePiece testBS4 False (-3,0,0) Queen Player2
+testBS5 = fromJust $ placePiece testBS4 False (-3,0,0) Grasshopper Player2
 circleBS :: BoardState
 circleBS = fromJust $ placePiece bs8 True (1,-1,0) Queen Player1
   where bs1 = fromJust $ placePiece emptyBS True (0,-1,0) Queen Player1
-        bs2 = fromJust $ placePiece bs1 True (-1,0,0) Queen Player1
+        bs2 = fromJust $ placePiece bs1 True (-1,0,0) Grasshopper Player1
         bs3 = fromJust $ placePiece bs2 True (-1,1,0) Queen Player1
         bs4 = fromJust $ placePiece bs3 True (0,1,0) Queen Player1
         bs5 = fromJust $ placePiece bs4 True (1,0,0) Queen Player1
@@ -72,13 +72,19 @@ pieceTypeMoves :: [PieceCoordinate] -> PieceCoordinate -> PieceType -> [PieceCoo
 pieceTypeMoves pcs c Queen = oneSpaceMove pcs Queen c
 pieceTypeMoves pcs c Ant = multiSpaceMove (const False) pcs c
 pieceTypeMoves pcs c Beetle = oneSpaceMove pcs Beetle c
-pieceTypeMoves _ _ Grasshopper = undefined
+pieceTypeMoves pcs c Grasshopper = map (pieceHop pcs c) possibleStarts
+  where possibleStarts =  filter (\d -> stackHeight pcs (getNeighbor c d) >= 1) allDirections
 pieceTypeMoves pcs c Spider = multiSpaceMove (== 3) pcs c
 
 oneSpaceMove :: [PieceCoordinate] -> PieceType -> PieceCoordinate -> [PieceCoordinate]
 oneSpaceMove pcs pT c = filter (canSlide pcs c)
                       $ filter (\p -> any (adjacentCoords p) (delete c pcs))
                       $ oneAway pcs c pT \\ pcs
+
+pieceHop :: [PieceCoordinate] -> PieceCoordinate -> Neighbor -> PieceCoordinate
+pieceHop pcs c n
+  | stackHeight pcs c == 0 = c
+  | otherwise = pieceHop pcs (getNeighbor c n) n
 
 multiSpaceMove :: (Int -> Bool) -> [PieceCoordinate] -> PieceCoordinate -> [PieceCoordinate]
 multiSpaceMove f pcs c  = go 0 Set.empty [c]
