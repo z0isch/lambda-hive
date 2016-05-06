@@ -28,6 +28,12 @@ type BoardState = (Map PieceCoordinate HivePiece, BoardAdjecency)
 type PlayerHand = [PieceType]
 type GameState = (HivePlayer,BoardState,PlayerHand,PlayerHand)
 
+data Neighbor = TopLeftN | LeftN | BottomLeftN | BottomRightN | RightN | TopRightN
+  deriving (Show, Eq, Ord)
+
+allDirections :: [Neighbor]
+allDirections = [TopLeftN,LeftN,BottomLeftN,BottomRightN,RightN,TopRightN]
+
 startingHand :: [PieceType]
 startingHand = [Ant,Ant,Ant,Queen,Beetle,Beetle,Grasshopper,Grasshopper,Grasshopper,Spider,Spider]
 
@@ -42,16 +48,19 @@ testBS2 = fromJust $ placePiece testBS1 False (1,0,0) Ant Player1
 testBS3 :: BoardState
 testBS3 = fromJust $ placePiece testBS2 False (-2,0,0) Ant Player2
 testBS4 :: BoardState
-testBS4 = fromJust $ placePiece testBS3 False (1,-1,0) Spider Player1
+testBS4 = fromJust $ placePiece testBS3 False (1,-1,0) Beetle Player1
 testBS5 :: BoardState
 testBS5 = fromJust $ placePiece testBS4 False (-3,0,0) Queen Player2
 circleBS :: BoardState
-circleBS = fromJust $ placePiece bs5 True (1,-1,0) Queen Player1
+circleBS = fromJust $ placePiece bs8 True (1,-1,0) Queen Player1
   where bs1 = fromJust $ placePiece emptyBS True (0,-1,0) Queen Player1
         bs2 = fromJust $ placePiece bs1 True (-1,0,0) Queen Player1
         bs3 = fromJust $ placePiece bs2 True (-1,1,0) Queen Player1
         bs4 = fromJust $ placePiece bs3 True (0,1,0) Queen Player1
         bs5 = fromJust $ placePiece bs4 True (1,0,0) Queen Player1
+        bs6 = fromJust $ placePiece bs5 True (1,-1,1) Beetle Player1
+        bs7 = fromJust $ placePiece bs6 True (0,-1,1) Beetle Player1
+        bs8 = fromJust $ placePiece bs7 True (1,0,1) Beetle Player1
 
 pieceMoves :: BoardState -> PieceCoordinate -> [PieceCoordinate]
 pieceMoves bs@(pcs,_) c
@@ -91,33 +100,39 @@ multiSpaceMove f pcs c  = go 0 Set.empty [c]
 -- If the shortest stack of tiles of C and D is taller than the tallest stack of tiles of A and B,
 -- then the beetle can't move to A. In all other scenarios the beetle is free to move from B to A.
 canSlide :: [PieceCoordinate] -> PieceCoordinate -> PieceCoordinate -> Bool
-canSlide pcs (x1,y1,_) (x2,y2,_)
-  | x1 == x2 && y1 > y2 = slideable [(x1-1,y1), (x1+1,y1+1)]
-  | x1 == x2 && y1 < y2 = slideable [(x1+1,y1), (x1-1,y1-1)]
-  | y1 == y2 && x1 > x2 = slideable [(x1,y1-1), (x1-1,y1+1)]
-  | y1 == y2 && x1 < x2 = slideable [(x1,y1+1), (x1+1,y1-1)]
-  | x1 > x2 && y1 < y2  = slideable [(x1-1,y1), (x1,y1+1)]
-  | x1 < x2 && y1 > y2  = slideable [(x1+1,y1), (x1,y1-1)]
+canSlide pcs c1 c2
+  | dir TopLeftN = slideable [LeftN,TopRightN]
+  | dir BottomRightN = slideable [RightN,BottomLeftN]
+  | dir LeftN = slideable [TopLeftN,BottomLeftN]
+  | dir RightN = slideable [BottomRightN,TopRightN]
+  | dir TopRightN = slideable [RightN,TopLeftN]
+  | dir BottomLeftN = slideable [LeftN,BottomRightN]
   | otherwise = False
-  where slideable xs = minimum (map (stackHeight pcs) xs) <= maxStackHeight
-        maxStackHeight = maximum [stackHeight pcs (x2,y2), stackHeight pcs (x1,y1) - 1]
+  where dir d = nonHeightEq (getNeighbor c1 d) c2
+        slideable xs = minimum (map (stackHeight pcs . getNeighbor c1) xs) <= maxStackHeight
+        maxStackHeight = maximum [stackHeight pcs c2, stackHeight pcs c1 - 1]
 
+nonHeightEq :: PieceCoordinate -> PieceCoordinate -> Bool
+nonHeightEq (x,y,_) (x2,y2,_) = x == x2 && y==y2
 
-stackHeight :: [PieceCoordinate] -> (Int,Int) -> Int
-stackHeight pcs (x,y) = genericLength $ filter (\(x1,y1,_) -> x1 == x && y1 == y) pcs
+stackHeight :: [PieceCoordinate] -> PieceCoordinate -> Int
+stackHeight pcs c = genericLength $ filter (nonHeightEq c) pcs
 
 oneAway :: [PieceCoordinate] -> PieceCoordinate -> PieceType-> [PieceCoordinate]
 oneAway pcs (x,y,_) Beetle = groundLevel ++ beetleLevel
   where groundLevel = oneAway pcs (x,y,0) Queen
-        beetleLevel = map (\((w,t),v) -> (w,t,v+1))
-                      $ Map.toList
-                      $ Map.map maximum
-                      $ Map.fromList
-                      $ map (\(x1,y1,h1) -> ((x1,y1),[h1]))
-                      $ filter (\(x1,y1,_) ->
-                        any (\(x2,y2,_) -> x2==x1 && y2==y1) pcs
-                      ) groundLevel
-oneAway _ (x,y,h) _ = [(x-1,y,h),(x+1,y,h),(x,y+1,h),(x,y-1,h),(x+1,y-1,h),(x-1,y+1,h)]
+        beetleLevel = map (\((x1,y1,_),h) -> (x1,y1,h))
+                      $ filter (\(_,h) -> h >= 1)
+                      $ map (\c -> (c,stackHeight pcs c)) groundLevel
+oneAway _ c _ = map (getNeighbor c) allDirections
+
+getNeighbor :: PieceCoordinate -> Neighbor -> PieceCoordinate
+getNeighbor (x,y,h) TopLeftN = (x,y-1,h)
+getNeighbor (x,y,h) LeftN = (x-1,y,h)
+getNeighbor (x,y,h) BottomLeftN = (x-1,y+1,h)
+getNeighbor (x,y,h) BottomRightN = (x,y+1,h)
+getNeighbor (x,y,h) RightN = (x+1,y,h)
+getNeighbor (x,y,h) TopRightN = (x+1,y-1,h)
 
 oneHiveRuleSatisfied :: BoardState -> PieceCoordinate -> Bool
 oneHiveRuleSatisfied bs = (<= 2) . length . scc . snd . removePiece bs
@@ -149,8 +164,6 @@ placePiece bs@(pcs, ba) firstTurn c t p
     adjacents = Map.filterWithKey (\k _ -> adjacentCoords c k) pcs
 
 adjacentCoords :: PieceCoordinate -> PieceCoordinate -> Bool
-adjacentCoords (x,y,_) (x1,y1,_)
-  | x1 == x && y1 == y = True
-  | x1 == x = abs (y1 - y) == 1
-  | y1 == y = abs (x1 - x) == 1
-  | otherwise = (y - y1 == 1 && x - x1 == -1) || (y - y1 == -1 && x -x1 == 1)
+adjacentCoords c1 c2
+  | nonHeightEq c1 c2 = True
+  | otherwise = any (\d -> nonHeightEq (getNeighbor c1 d) c2) allDirections
