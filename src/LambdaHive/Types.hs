@@ -4,7 +4,6 @@ import           Data.Graph
 import           Data.List
 import           Data.Map   (Map)
 import qualified Data.Map   as Map
-import           Data.Maybe
 import qualified Data.Set   as Set
 
 data HivePlayer = Player1 | Player2
@@ -74,30 +73,18 @@ allDirections = [TopLeftN,LeftN,BottomLeftN,BottomRightN,RightN,TopRightN]
 
 emptyBS :: BoardState
 emptyBS = (Map.empty, buildG (0,0) [])
-testBS0 :: BoardState
-testBS0 = fromJust $ placePiece emptyBS True (0,0,0) Ant Player1
-testBS1 :: BoardState
-testBS1 = fromJust $ placePiece testBS0 True (-1,0,0) Ant Player2
-testBS2 :: BoardState
-testBS2 = fromJust $ placePiece testBS1 False (1,0,0) Ant Player1
-testBS3 :: BoardState
-testBS3 = fromJust $ placePiece testBS2 False (-2,0,0) Ant Player2
-testBS4 :: BoardState
-testBS4 = fromJust $ placePiece testBS3 False (1,-1,0) Ant Player1
-testBS5 :: BoardState
-testBS5 = fromJust $ placePiece testBS4 False (-3,0,0) Grasshopper Player2
+testGS0 :: GameState
+testGS0 = GameState Player1 0 emptyBS startingHand startingHand
+testGS1 :: GameState
+testGS1 = unsafePlacePiece testGS0 (0,0,0) Spider
+testGS2 :: GameState
+testGS2 = unsafePlacePiece testGS1 (-1,0,0) Spider
+testGS3 :: GameState
+testGS3 = unsafePlacePiece testGS2 (1,0,0) Queen
+testGS4 :: GameState
+testGS4 = unsafePlacePiece testGS3 (-2,0,0) Queen
 testGS5 :: GameState
-testGS5 = GameState Player1 6 testBS5 startingHand startingHand
-circleBS :: BoardState
-circleBS = fromJust $ placePiece bs8 True (1,-1,0) Queen Player1
-  where bs1 = fromJust $ placePiece emptyBS True (0,-1,0) Queen Player1
-        bs2 = fromJust $ placePiece bs1 True (-1,0,0) Grasshopper Player1
-        bs3 = fromJust $ placePiece bs2 True (-1,1,0) Queen Player1
-        bs4 = fromJust $ placePiece bs3 True (0,1,0) Queen Player1
-        bs5 = fromJust $ placePiece bs4 True (1,0,0) Queen Player1
-        bs6 = fromJust $ placePiece bs5 True (1,-1,1) Beetle Player1
-        bs7 = fromJust $ placePiece bs6 True (0,-1,1) Beetle Player1
-        bs8 = fromJust $ placePiece bs7 True (1,0,1) Beetle Player1
+testGS5 = unsafePlacePiece testGS4 (1,-1,0) Ant
 
 validPlacementSpots :: GameState -> [PieceCoordinate]
 validPlacementSpots gs = filter valid possibles
@@ -108,7 +95,9 @@ validPlacementSpots gs = filter valid possibles
         firstTurn = if gsCurrPlayer gs == Player1
                     then gsTurn gs == 0
                     else gsTurn gs == 1
-        wrongPlayer c = (> 0) $ length $ Map.filter (\p2 -> hPlayer p2 /= gsCurrPlayer gs) (topOfStackAdjacents c)
+        notCurrentPlayer p2 = hPlayer p2 /= gsCurrPlayer gs
+        wrongPlayer c = (> 0) $ length
+                        $ Map.filter notCurrentPlayer (topOfStackAdjacents c)
         topOfStackAdjacents c = Map.filterWithKey (\k _ -> topOfTheStack bs k) (adjacents c)
         adjacents c = Map.filterWithKey (\k _ -> adjacentCoords c k) pcs
         valid c
@@ -121,20 +110,6 @@ validPlacementTypes gs
   | not (playedBee gs) && gsCurrPlayer gs == Player1 && gsTurn gs == 6 = [Queen]
   | not (playedBee gs) && gsCurrPlayer gs == Player2 && gsTurn gs == 7 = [Queen]
   | otherwise = nub $ currPlayersHand gs
-
-placePiece :: BoardState -> Bool -> PieceCoordinate -> PieceType -> HivePlayer -> Maybe BoardState
-placePiece bs@(pcs, ba) firstTurn c t p
-  | c `Map.member` pcs = Nothing
-  | not firstTurn && wrongPlayer = Nothing
-  | otherwise = Just (newMap, newGraph)
-  where
-    newGraph = buildG (0,Map.size pcs) $ edges ba ++ concatMap ((\i -> [(i,newPieceId),(newPieceId,i)]) . hPieceId) (Map.elems adjacents)
-    newMap = Map.insert c (HivePiece p newPieceId t "") pcs
-    newPieceId = Map.size pcs
-    wrongPlayer = (> 0) $ length $ Map.filter (\p2 -> hPlayer p2 /= p) topOfStackAdjacents
-    topOfStackAdjacents = Map.filterWithKey (\k _ -> topOfTheStack bs k) adjacents
-    adjacents = Map.filterWithKey (\k _ -> adjacentCoords c k) pcs
-
 
 validPieceMoves :: GameState -> PieceCoordinate -> [PieceCoordinate]
 validPieceMoves gs c
@@ -249,9 +224,10 @@ unsafeMovePiece gs c1 c2 = GameState
                          , gsHand1 = gsHand1 gs
                          , gsHand2 = gsHand2 gs
                          }
-  where bs = gsBoard gs
+  where
         pcs = fst bs
         ba = snd bs
+        bs = gsBoard gs
         piece = pcs Map.! c1
         pieceId = hPieceId piece
         newMap = Map.insert c2 piece $ Map.delete c1 pcs
@@ -274,11 +250,11 @@ unsafePlacePiece gs c t = GameState
     ba = snd bs
     bothWays i = [(i,newPieceId),(newPieceId,i)]
     newEdges = edges ba ++ concatMap (bothWays . hPieceId) (Map.elems adjacents)
-    newGraph = buildG (0,Map.size pcs) newEdges
+    newGraph = buildG (0,Map.size newMap -1) newEdges
     connonicalName = playerString (gsCurrPlayer gs)
                     ++ pieceString t
-                    ++ if t /= Queen then show (numOfPieceType + 1) else ""
-    numOfPieceType = Map.size $ Map.filter (\p-> hPieceType p == t) pcs
+                    ++ if t== Queen then "" else show (numOfPieceType + 1)
+    numOfPieceType = Map.size $ Map.filter (\p-> hPieceType p == t && hPlayer p == gsCurrPlayer gs) pcs
     newMap = Map.insert c (HivePiece (gsCurrPlayer gs) newPieceId t connonicalName) pcs
     newPieceId = Map.size pcs
     adjacents = Map.filterWithKey (\k _ -> adjacentCoords c k) pcs
