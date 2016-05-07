@@ -5,6 +5,7 @@ import           Data.List
 import           Data.Map   (Map)
 import qualified Data.Map   as Map
 import qualified Data.Set   as Set
+import System.Random
 
 data HivePlayer = Player1 | Player2
   deriving (Show, Eq, Ord)
@@ -86,6 +87,19 @@ testGS4 = unsafePlacePiece testGS3 (-2,0,0) Queen
 testGS5 :: GameState
 testGS5 = unsafePlacePiece testGS4 (1,-1,0) Ant
 
+randomAI :: GameState -> IO GameState
+randomAI gs = do
+  let allMoves = validPlayerMoves gs
+  r <- randomRIO (0, length allMoves -1)
+  return (allMoves !! r)
+
+validPlayerMoves :: GameState -> [GameState]
+validPlayerMoves gs
+  | gsTurn gs == 0 = map (unsafePlacePiece gs (0,0,0)) (validPlacementTypes gs)
+  | otherwise = zipWith (unsafePlacePiece gs) allSpots allTypes
+    where allSpots = concat $ permutations (validPlacementSpots gs)
+          allTypes = concat $ permutations (validPlacementTypes gs)
+
 validPlacementSpots :: GameState -> [PieceCoordinate]
 validPlacementSpots gs = filter valid possibles
   where bs = gsBoard gs
@@ -107,6 +121,7 @@ validPlacementSpots gs = filter valid possibles
 
 validPlacementTypes :: GameState -> [PieceType]
 validPlacementTypes gs
+  | gsTurn gs == 0 || gsTurn gs == 1 = delete Queen $ nub $ currPlayersHand gs
   | not (playedBee gs) && gsCurrPlayer gs == Player1 && gsTurn gs == 6 = [Queen]
   | not (playedBee gs) && gsCurrPlayer gs == Player2 && gsTurn gs == 7 = [Queen]
   | otherwise = nub $ currPlayersHand gs
