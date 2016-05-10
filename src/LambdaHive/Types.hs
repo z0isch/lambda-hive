@@ -2,10 +2,11 @@ module LambdaHive.Types where
 
 import           Data.Graph
 import           Data.List
-import           Data.Map   (Map)
-import qualified Data.Map   as Map
-import qualified Data.Set   as Set
-import System.Random
+import           Data.Map      (Map)
+import qualified Data.Map      as Map
+import           Data.Set      (Set)
+import qualified Data.Set      as Set
+import           System.Random
 
 data HivePlayer = Player1 | Player2
   deriving (Show, Eq, Ord)
@@ -32,9 +33,9 @@ type PieceId = Int
 type PieceCoordinate = (Int,Int,Int)
 
 data HivePiece = HivePiece
-  { hPlayer    :: HivePlayer
-  , hPieceId   :: PieceId
-  , hPieceType :: PieceType
+  { hPlayer      :: HivePlayer
+  , hPieceId     :: PieceId
+  , hPieceType   :: PieceType
   , hCannoicalId :: String
   }
   deriving (Show, Eq, Ord)
@@ -87,6 +88,19 @@ testGS4 = unsafePlacePiece testGS3 (-2,0,0) Queen
 testGS5 :: GameState
 testGS5 = unsafePlacePiece testGS4 (1,-1,0) Ant
 
+testCircle1 :: GameState
+testCircle1 = unsafePlacePiece testGS0 (1,0,0) Queen
+testCircle2 :: GameState
+testCircle2 = unsafePlacePiece testCircle1 (-1,0,0) Queen
+testCircle3 :: GameState
+testCircle3 = unsafePlacePiece testCircle2 (0,-1,0) Queen
+testCircle4 :: GameState
+testCircle4 = unsafePlacePiece testCircle3 (-1,1,0) Ant
+testCircle5 :: GameState
+testCircle5 = unsafePlacePiece testCircle4 (0,1,0) Ant
+testCircle6 :: GameState
+testCircle6 = unsafePlacePiece testCircle5 (1,0,1) Beetle
+
 randomAI :: GameState -> IO GameState
 randomAI gs = do
   let allMoves = validPlayerMoves gs
@@ -105,7 +119,7 @@ validPlacementSpots gs = filter valid possibles
   where bs = gsBoard gs
         pcs = fst bs
         cs = Map.keys pcs
-        possibles = nub $ concatMap (\p -> oneAway cs p Queen) cs \\ cs
+        possibles = nub $ concatMap (oneAway cs Queen) cs \\ cs
         firstTurn = if gsCurrPlayer gs == Player1
                     then gsTurn gs == 0
                     else gsTurn gs == 1
@@ -143,26 +157,36 @@ pieceTypeMoves pcs c Grasshopper = map (pieceHop pcs c) possibleStarts
   where possibleStarts =  filter (\d -> stackHeight pcs (getNeighbor c d) >= 1) allDirections
 pieceTypeMoves pcs c Spider = multiSpaceMove (== 3) pcs c
 
-oneSpaceMove :: [PieceCoordinate] -> PieceType -> PieceCoordinate -> [PieceCoordinate]
-oneSpaceMove pcs pT c = filter (canSlide pcs c)
-                      $ filter (\p -> any (adjacentCoords p) (delete c pcs))
-                      $ oneAway pcs c pT \\ pcs
-
 pieceHop :: [PieceCoordinate] -> PieceCoordinate -> Neighbor -> PieceCoordinate
 pieceHop pcs c n
   | stackHeight pcs c == 0 = c
   | otherwise = pieceHop pcs (getNeighbor c n) n
 
+-- Intersect open spots near current piece with open spots near neighbors of current piece
+-- Add in top of the hive moves for beetles
+oneSpaceMove :: [PieceCoordinate] -> PieceType -> PieceCoordinate -> [PieceCoordinate]
+oneSpaceMove pcs pT c = filter (canSlide pcs c) possibleSpaces
+  where possibleSpaces = possibleGroundSpaces ++ possibleOnTopSpaces
+        possibleOnTopSpaces = filter (\(_,_,h) -> h > 0) adjacentSquares
+        possibleGroundSpaces = (adjacentSquares `intersect` adjacentToNeighbors) \\ pcs
+        adjacentToNeighbors = concatMap (oneAway pcs Queen) neighbors
+        neighbors = adjacentSquares `intersect` pcs
+        adjacentSquares = oneAway pcs pT c
+
 multiSpaceMove :: (Int -> Bool) -> [PieceCoordinate] -> PieceCoordinate -> [PieceCoordinate]
-multiSpaceMove f pcs c  = go 0 Set.empty [c]
+multiSpaceMove f pcs orig = go pcs 0 Set.empty orig
   where
-    go _ visited [] = Set.toList visited
-    go step visited cs
+    go :: [PieceCoordinate] -> Int -> Set PieceCoordinate -> PieceCoordinate -> [PieceCoordinate]
+    go npcs step visited c
       | f (step+1) = newSpots
-      | otherwise = go (step+1) newVisited newSpots
-      where newSpots = filter (`Set.notMember` visited)
-                     $ concatMap (oneSpaceMove pcs Queen) cs
-            newVisited = Set.union visited (Set.fromList newSpots)
+      | null traversed = delete orig $ Set.toList visited
+      | otherwise = nub traversed
+      where
+            traversed = concatMap (\s -> go (newPcs s) (step+1) newVisited s) newSpots
+            newSpots = filter (`Set.notMember` visited)
+                     $ oneSpaceMove npcs Queen c
+            newVisited = Set.insert c visited
+            newPcs s = s:delete c npcs
 
 --     >-<
 --  >-< A >-<
@@ -191,13 +215,13 @@ axialEq (x,y,_) (x2,y2,_) = x == x2 && y==y2
 stackHeight :: [PieceCoordinate] -> PieceCoordinate -> Int
 stackHeight pcs c = genericLength $ filter (axialEq c) pcs
 
-oneAway :: [PieceCoordinate] -> PieceCoordinate -> PieceType-> [PieceCoordinate]
-oneAway pcs (x,y,_) Beetle = groundLevel ++ beetleLevel
-  where groundLevel = oneAway pcs (x,y,0) Queen
+oneAway :: [PieceCoordinate] -> PieceType -> PieceCoordinate -> [PieceCoordinate]
+oneAway pcs Beetle (x,y,_)  = groundLevel ++ beetleLevel
+  where groundLevel = oneAway pcs Queen (x,y,0)
         beetleLevel = map (\((x1,y1,_),h) -> (x1,y1,h))
                       $ filter (\(_,h) -> h >= 1)
                       $ map (\c -> (c,stackHeight pcs c)) groundLevel
-oneAway _ c _ = map (getNeighbor c) allDirections
+oneAway _ _ c = map (getNeighbor c) allDirections
 
 getNeighbor :: PieceCoordinate -> Neighbor -> PieceCoordinate
 getNeighbor (x,y,h) TopLeftN = (x,y-1,h)
@@ -206,9 +230,6 @@ getNeighbor (x,y,h) BottomLeftN = (x-1,y+1,h)
 getNeighbor (x,y,h) BottomRightN = (x,y+1,h)
 getNeighbor (x,y,h) RightN = (x+1,y,h)
 getNeighbor (x,y,h) TopRightN = (x+1,y-1,h)
-
-oneHiveRuleSatisfied :: BoardState -> PieceCoordinate -> Bool
-oneHiveRuleSatisfied bs = (<= 2) . length . scc . snd . removePiece bs
 
 topOfTheStack :: BoardState -> PieceCoordinate -> Bool
 topOfTheStack (pcs,_) (x,y,h) = (== h) $ maximum
@@ -220,6 +241,9 @@ adjacentCoords :: PieceCoordinate -> PieceCoordinate -> Bool
 adjacentCoords c1 c2
   | axialEq c1 c2 = True
   | otherwise = any (\d -> axialEq (getNeighbor c1 d) c2) allDirections
+
+oneHiveRuleSatisfied :: BoardState -> PieceCoordinate -> Bool
+oneHiveRuleSatisfied bs = (<= 2) . length . scc . snd . removePiece bs
 
 removePiece :: BoardState -> PieceCoordinate -> BoardState
 removePiece (pcs,ba) c = (newMap, newGraph)

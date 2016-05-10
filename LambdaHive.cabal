@@ -22,6 +22,7 @@ library
                      , containers
                      , bimap
                      , random
+                     , MissingH
   default-language:    Haskell2010
 
 executable LambdaHive-exe
