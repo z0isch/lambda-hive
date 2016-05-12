@@ -33,10 +33,10 @@ type PieceId = Int
 type PieceCoordinate = (Int,Int,Int)
 
 data HivePiece = HivePiece
-  { hPlayer      :: HivePlayer
-  , hPieceId     :: PieceId
-  , hPieceType   :: PieceType
-  , hCannoicalId :: String
+  { hPlayer       :: HivePlayer
+  , hPieceId      :: PieceId
+  , hPieceType    :: PieceType
+  , hCannonicalId :: String
   }
   deriving (Show, Eq, Ord)
 
@@ -73,12 +73,10 @@ data Neighbor = TopLeftN | LeftN | BottomLeftN | BottomRightN | RightN | TopRigh
 allDirections :: [Neighbor]
 allDirections = [TopLeftN,LeftN,BottomLeftN,BottomRightN,RightN,TopRightN]
 
-emptyBS :: BoardState
-emptyBS = (Map.empty, buildG (0,0) [])
-testGS0 :: GameState
-testGS0 = GameState Player1 0 emptyBS startingHand startingHand
+initGS :: GameState
+initGS = GameState Player1 0 (Map.empty, buildG (0,0) []) startingHand startingHand
 testGS1 :: GameState
-testGS1 = unsafePlacePiece testGS0 (0,0,0) Spider
+testGS1 = unsafePlacePiece initGS (0,0,0) Spider
 testGS2 :: GameState
 testGS2 = unsafePlacePiece testGS1 (-1,0,0) Spider
 testGS3 :: GameState
@@ -89,7 +87,7 @@ testGS5 :: GameState
 testGS5 = unsafePlacePiece testGS4 (1,-1,0) Ant
 
 testCircle1 :: GameState
-testCircle1 = unsafePlacePiece testGS0 (1,0,0) Queen
+testCircle1 = unsafePlacePiece initGS (1,0,0) Queen
 testCircle2 :: GameState
 testCircle2 = unsafePlacePiece testCircle1 (-1,0,0) Queen
 testCircle3 :: GameState
@@ -162,8 +160,6 @@ pieceHop pcs c n
   | stackHeight pcs c == 0 = c
   | otherwise = pieceHop pcs (getNeighbor c n) n
 
--- Intersect open spots near current piece with open spots near neighbors of current piece
--- Add in top of the hive moves for beetles
 oneSpaceMove :: [PieceCoordinate] -> PieceType -> PieceCoordinate -> [PieceCoordinate]
 oneSpaceMove pcs pT c = filter (canSlide pcs c) possibleSpaces
   where possibleSpaces = possibleGroundSpaces ++ possibleOnTopSpaces

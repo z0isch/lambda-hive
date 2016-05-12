@@ -16,13 +16,21 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   ghc-options:         -Wall
-  exposed-modules:     Data.SGF.Hive, LambdaHive.Types
+  exposed-modules:     Data.SGF.Hive, LambdaHive.Types, LambdaHive.SVG.Printer
   build-depends:       base >= 4.7 && < 5
                      , trifecta
                      , containers
+                     , linear
                      , bimap
                      , random
                      , MissingH
+                     , diagrams
+                     , diagrams-lib
+                     , diagrams-core
+                     , diagrams-svg
+                     , diagrams-contrib
+                     , diagrams-canvas
+                     , blank-canvas
   default-language:    Haskell2010
 
 executable LambdaHive-exe
