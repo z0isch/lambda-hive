@@ -31,6 +31,8 @@ library
                      , diagrams-contrib
                      , diagrams-canvas
                      , blank-canvas
+                     , colour
+                     , safe
   default-language:    Haskell2010
 
 executable LambdaHive-exe

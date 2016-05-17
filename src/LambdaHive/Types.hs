@@ -6,6 +6,7 @@ import           Data.Map      (Map)
 import qualified Data.Map      as Map
 import           Data.Set      (Set)
 import qualified Data.Set      as Set
+import           Safe
 import           System.Random
 
 data HivePlayer = Player1 | Player2
@@ -31,12 +32,13 @@ startingHand = [Ant,Ant,Ant,Queen,Beetle,Beetle,Grasshopper,Grasshopper,Grasshop
 type PieceId = Int
 --Axial coordinates with height (x,y,height) http://www.redblobgames.com/grids/hexagons/
 type PieceCoordinate = (Int,Int,Int)
+type CannonicalId = String
 
 data HivePiece = HivePiece
   { hPlayer       :: HivePlayer
   , hPieceId      :: PieceId
   , hPieceType    :: PieceType
-  , hCannonicalId :: String
+  , hCannonicalId :: CannonicalId
   }
   deriving (Show, Eq, Ord)
 
@@ -53,6 +55,9 @@ data GameState = GameState
   , gsHand2      :: PlayerHand
   }
   deriving (Show, Eq, Ord)
+
+getPieceCoord :: GameState -> CannonicalId -> Maybe PieceCoordinate
+getPieceCoord gs i = fst <$> headMay (Map.toList $ Map.filter (\p -> hCannonicalId p == i) $ fst $ gsBoard gs)
 
 nextPlayer :: GameState -> HivePlayer
 nextPlayer gs
@@ -91,13 +96,19 @@ testCircle1 = unsafePlacePiece initGS (1,0,0) Queen
 testCircle2 :: GameState
 testCircle2 = unsafePlacePiece testCircle1 (-1,0,0) Queen
 testCircle3 :: GameState
-testCircle3 = unsafePlacePiece testCircle2 (0,-1,0) Queen
+testCircle3 = unsafePlacePiece testCircle2 (0,-1,0) Spider
 testCircle4 :: GameState
-testCircle4 = unsafePlacePiece testCircle3 (-1,1,0) Ant
+testCircle4 = unsafePlacePiece testCircle3 (-1,1,0) Grasshopper
 testCircle5 :: GameState
 testCircle5 = unsafePlacePiece testCircle4 (0,1,0) Ant
 testCircle6 :: GameState
 testCircle6 = unsafePlacePiece testCircle5 (1,0,1) Beetle
+testCircle7 :: GameState
+testCircle7 = unsafePlacePiece testCircle6 (1,-1,0) Ant
+testCircle8 :: GameState
+testCircle8 = unsafePlacePiece testCircle7 (1,-1,1) Beetle
+testCircle9 :: GameState
+testCircle9 = unsafePlacePiece testCircle8 (0,-1,1) Beetle
 
 randomAI :: GameState -> IO GameState
 randomAI gs = do
@@ -161,13 +172,16 @@ pieceHop pcs c n
   | otherwise = pieceHop pcs (getNeighbor c n) n
 
 oneSpaceMove :: [PieceCoordinate] -> PieceType -> PieceCoordinate -> [PieceCoordinate]
-oneSpaceMove pcs pT c = filter (canSlide pcs c) possibleSpaces
+oneSpaceMove pcs pT c@(pX,pY,pH) = filter (canSlide pcs c) possibleSpaces
   where possibleSpaces = possibleGroundSpaces ++ possibleOnTopSpaces
         possibleOnTopSpaces = filter (\(_,_,h) -> h > 0) adjacentSquares
         possibleGroundSpaces = (adjacentSquares `intersect` adjacentToNeighbors) \\ pcs
         adjacentToNeighbors = concatMap (oneAway pcs Queen) neighbors
         neighbors = adjacentSquares `intersect` pcs
-        adjacentSquares = oneAway pcs pT c
+        adjacentSquares = oneAway pcs pT c ++ bottomOfStack
+        bottomOfStack
+          | pH > 0 = [(pX,pY,0)]
+          | otherwise = []
 
 multiSpaceMove :: (Int -> Bool) -> [PieceCoordinate] -> PieceCoordinate -> [PieceCoordinate]
 multiSpaceMove f pcs orig = go pcs 0 Set.empty orig
