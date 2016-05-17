@@ -12,12 +12,12 @@ import           Diagrams.Prelude
 import qualified Graphics.Blank          as B
 import           LambdaHive.Types
 
-hex :: String -> Diagram B
-hex i = text i # fontSizeL 0.75 <> regPoly 6 1 # rotateBy (1/12)
+hex :: Diagram B
+hex = regPoly 6 1 # rotateBy (1/12)
 
 hiveHex :: GameState -> PieceCoordinate -> Diagram B
 hiveHex gs pc = text (intercalate ">" stackText) # fontSizeL (0.5 / genericLength stackText) # fc (fontColor player)
-              <> regPoly 6 1 # rotateBy (1/12) # fc (color player) # lc black # lwN 0.01
+              <> hex # fc (color player) # lc black # lwN 0.01
   where
     bs = fst $ gsBoard gs
     hp = (Map.!) bs pc
@@ -31,9 +31,9 @@ hiveHex gs pc = text (intercalate ">" stackText) # fontSizeL (0.5 / genericLengt
     player = hPlayer hp
 
 possibleMoveHex :: Diagram B
-possibleMoveHex = regPoly 6 1 # rotateBy (1/12) # lc green # lwN 0.02
+possibleMoveHex = hex # lc green # lwN 0.02
 moveFromHex :: Diagram B
-moveFromHex = regPoly 6 1 # rotateBy (1/12) # lc red # lwN 0.02
+moveFromHex = hex # lc red # lwN 0.02
 
 coordToPoint :: PieceCoordinate -> P2 Double
 coordToPoint (q,r,_) =  p2 (x,y)
