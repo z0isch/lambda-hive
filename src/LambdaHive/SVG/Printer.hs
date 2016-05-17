@@ -16,14 +16,13 @@ hex :: String -> Diagram B
 hex i = text i # fontSizeL 0.75 <> regPoly 6 1 # rotateBy (1/12)
 
 hiveHex :: GameState -> PieceCoordinate -> Diagram B
-hiveHex gs pc = text (intercalate "-" stackText) # fontSizeL (0.5 / genericLength stackText) # fc (fontColor player)
+hiveHex gs pc = text (intercalate ">" stackText) # fontSizeL (0.5 / genericLength stackText) # fc (fontColor player)
               <> regPoly 6 1 # rotateBy (1/12) # fc (color player) # lc black # lwN 0.01
   where
     bs = fst $ gsBoard gs
     hp = (Map.!) bs pc
     stackText = map (hCannonicalId . snd)
-              $ reverse
-              $ sortOn (\((_,_,h),_) -> h)
+              $ sortOn (\((_,_,h),_) -> -h)
               $ Map.toList $ Map.filterWithKey (\k _ -> axialEq pc k) bs
     color Player1 = lavender
     color Player2 = darkslategrey
