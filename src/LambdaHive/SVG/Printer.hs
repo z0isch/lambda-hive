@@ -3,6 +3,7 @@
 
 module LambdaHive.SVG.Printer where
 
+import Data.List
 import           Control.Concurrent
 import qualified Data.Map                as Map
 import           Diagrams.Backend.Canvas
@@ -14,20 +15,26 @@ import           LambdaHive.Types
 hex :: String -> Diagram B
 hex i = text i # fontSizeL 0.75 <> regPoly 6 1 # rotateBy (1/12)
 
-hiveHex :: HivePiece -> Diagram B
-hiveHex hp = text pieceText # fontSizeL 0.75 # fc (fontColor player) <> regPoly 6 1 # rotateBy (1/12) # fc (color player) # lc (color player)
+hiveHex :: GameState -> PieceCoordinate -> Diagram B
+hiveHex gs pc = text (intercalate "-" stackText) # fontSizeL (0.5 / genericLength stackText) # fc (fontColor player)
+              <> regPoly 6 1 # rotateBy (1/12) # fc (color player) # lc black # lwN 0.01
   where
-    pieceText = tail $ hCannonicalId hp
-    color Player1 = oldlace
-    color Player2 = black
-    fontColor Player1 = black
-    fontColor Player2 = oldlace
+    bs = fst $ gsBoard gs
+    hp = (Map.!) bs pc
+    stackText = map (hCannonicalId . snd)
+              $ reverse
+              $ sortOn (\((_,_,h),_) -> h)
+              $ Map.toList $ Map.filterWithKey (\k _ -> axialEq pc k) bs
+    color Player1 = lavender
+    color Player2 = darkslategrey
+    fontColor Player1 = darkslategrey
+    fontColor Player2 = lavender
     player = hPlayer hp
 
 possibleMoveHex :: Diagram B
-possibleMoveHex = regPoly 6 1 # rotateBy (1/12) # lc green # lwN 0.01
+possibleMoveHex = regPoly 6 1 # rotateBy (1/12) # lc green # lwN 0.02
 moveFromHex :: Diagram B
-moveFromHex = regPoly 6 1 # rotateBy (1/12) # lc red # lwN 0.01
+moveFromHex = regPoly 6 1 # rotateBy (1/12) # lc red # lwN 0.02
 
 coordToPoint :: PieceCoordinate -> P2 Double
 coordToPoint (q,r,_) =  p2 (x,y)
@@ -40,7 +47,7 @@ coordToPoint (q,r,_) =  p2 (x,y)
 gameStateDiagram :: GameState -> Diagram B
 gameStateDiagram gs = position currState
   where
-    currState = map (\(pc,hp) -> (coordToPoint pc, hiveHex hp))
+    currState = map (\(pc,_) -> (coordToPoint pc, hiveHex gs pc))
               $ Map.toList
               $ Map.filterWithKey (\pc _ -> topOfTheStack (gsBoard gs) pc)
               $ fst $ gsBoard gs
@@ -59,7 +66,7 @@ possibleMoves gs pc
 
 main :: IO ()
 main = do
-  canvas <- newMVar $ renderDia Canvas (CanvasOptions (dims $ V2 300 300)) $ gameStateDiagram testCircle9
+  canvas <- newMVar $ renderDia Canvas (CanvasOptions (dims $ V2 600 600)) $ gameStateDiagram testCircle9
   canvasThread <- forkIO $ B.blankCanvas 3000 $ canvasLoop canvas
   mainLoop testCircle9 canvas canvasThread
 
@@ -72,7 +79,7 @@ mainLoop gs canvas canvasThread = do
       let foundPiece = getPieceCoord gs d
       case foundPiece of
         Just pc -> do
-           _ <- swapMVar canvas $ renderDia Canvas (CanvasOptions (dims $ V2 300 300)) (possibleMoves gs pc <> gameStateDiagram gs)
+           _ <- swapMVar canvas $ renderDia Canvas (CanvasOptions (dims $ V2 600 600)) (possibleMoves gs pc <> gameStateDiagram gs)
            mainLoop gs canvas canvasThread
         Nothing -> mainLoop gs canvas canvasThread
 

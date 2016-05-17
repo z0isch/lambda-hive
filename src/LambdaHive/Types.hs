@@ -108,7 +108,7 @@ testCircle7 = unsafePlacePiece testCircle6 (1,-1,0) Ant
 testCircle8 :: GameState
 testCircle8 = unsafePlacePiece testCircle7 (1,-1,1) Beetle
 testCircle9 :: GameState
-testCircle9 = unsafePlacePiece testCircle8 (0,-1,1) Beetle
+testCircle9 = unsafePlacePiece testCircle8 (1,-1,2) Beetle
 
 randomAI :: GameState -> IO GameState
 randomAI gs = do
