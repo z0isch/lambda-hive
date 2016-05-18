@@ -33,7 +33,7 @@ moveParser = f <$> pieceParser
             <*> char ' '
             <*> (try (s <$> oneOf "-\\/" <*> pieceParser)
               <|> try (t <$> pieceParser <*> oneOf "-\\/")
-              <|> try (u <$> pieceParser))
+              <|> (u <$> pieceParser))
   where
     f p1 _ (p2, Just m)= SlideMove p1 p2 m
     f p1 _ (p2, Nothing)= TopMove p1 p2
