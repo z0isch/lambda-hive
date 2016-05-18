@@ -90,13 +90,23 @@ mainLoop gs canvas canvasThread = do
         Tri.Failure _ -> do
           let move = Tri.parseString (moveParser <* Tri.eof) mempty d
           case move of
-            Tri.Success (HiveMove piece1 piece2 dir) -> do
+            Tri.Success (SlideMove piece1 piece2 dir) -> do
               let foundPiece1 = getPieceCoord gs (getCanonicalId piece1)
               let foundPiece2 = getPieceCoord gs (getCanonicalId piece2)
               let moveCoord = flip getNeighbor dir <$> foundPiece2
               if isJust foundPiece1 && isJust foundPiece2
               then do
                   newGs <- randomAI $ unsafeMovePiece gs (fromJust foundPiece1) (fromJust moveCoord)
+                  _ <- swapMVar canvas $ renderDia Canvas (CanvasOptions (dims $ V2 600 600)) (gameStateDiagram newGs)
+                  mainLoop newGs canvas canvasThread
+              else mainLoop gs canvas canvasThread
+            Tri.Success (TopMove piece1 piece2) -> do
+              let foundPiece1 = getPieceCoord gs (getCanonicalId piece1)
+              let foundPiece2 = getPieceCoord gs (getCanonicalId piece2)
+              if isJust foundPiece1 && isJust foundPiece2
+              then do
+                  let fp2@(x2,y2,_) = fromJust foundPiece2
+                  newGs <- randomAI $ unsafeMovePiece gs (fromJust foundPiece1) (x2,y2,stackHeight' gs fp2)
                   _ <- swapMVar canvas $ renderDia Canvas (CanvasOptions (dims $ V2 600 600)) (gameStateDiagram newGs)
                   mainLoop newGs canvas canvasThread
               else mainLoop gs canvas canvasThread

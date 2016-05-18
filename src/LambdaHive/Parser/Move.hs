@@ -8,7 +8,7 @@ data PieceMove = PieceMove HivePlayer PieceMoveId
   deriving (Eq, Ord, Show)
 data PieceMoveId = QueenMove | PieceMoveType PieceType Int
   deriving (Eq, Ord, Show)
-data HiveMove = HiveMove PieceMove PieceMove Neighbor
+data HiveMove = SlideMove PieceMove PieceMove Neighbor | TopMove PieceMove PieceMove
   deriving (Eq, Ord, Show)
 
 getCanonicalId :: PieceMove -> String
@@ -29,11 +29,17 @@ charPlayer 'b' = Player2
 charPlayer _ = error "Unexpected character"
 
 moveParser :: Parser HiveMove
-moveParser = f <$> pieceParser <*> char ' ' <*> (try (s <$> oneOf "-\\/" <*> pieceParser) <|> t <$> pieceParser <*> oneOf "-\\/")
+moveParser = f <$> pieceParser
+            <*> char ' '
+            <*> (try (s <$> oneOf "-\\/" <*> pieceParser)
+              <|> try (t <$> pieceParser <*> oneOf "-\\/")
+              <|> try (u <$> pieceParser))
   where
-    f p1 _ (p2,m)= HiveMove p1 p2 m
-    s c p = (p,leftNeighbor c)
-    t p c= (p,rightNeighbor c)
+    f p1 _ (p2, Just m)= SlideMove p1 p2 m
+    f p1 _ (p2, Nothing)= TopMove p1 p2
+    u p = (p,Nothing)
+    s c p = (p,Just $ leftNeighbor c)
+    t p c=  (p,Just $ rightNeighbor c)
     leftNeighbor '-' = LeftN
     leftNeighbor '\\' = BottomLeftN
     leftNeighbor '/' = TopLeftN

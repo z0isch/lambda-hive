@@ -83,11 +83,11 @@ initGS = GameState Player1 0 (Map.empty, buildG (0,0) []) startingHand startingH
 testGS1 :: GameState
 testGS1 = unsafePlacePiece initGS (0,0,0) Spider
 testGS2 :: GameState
-testGS2 = unsafePlacePiece testGS1 (-1,0,0) Spider
+testGS2 = unsafePlacePiece testGS1 (-1,0,0) Queen
 testGS3 :: GameState
 testGS3 = unsafePlacePiece testGS2 (1,0,0) Queen
 testGS4 :: GameState
-testGS4 = unsafePlacePiece testGS3 (-2,0,0) Queen
+testGS4 = unsafePlacePiece testGS3 (-2,0,0) Beetle
 testGS5 :: GameState
 testGS5 = unsafePlacePiece testGS4 (1,-1,0) Ant
 
@@ -225,6 +225,10 @@ axialEq (x,y,_) (x2,y2,_) = x == x2 && y==y2
 
 stackHeight :: [PieceCoordinate] -> PieceCoordinate -> Int
 stackHeight pcs c = genericLength $ filter (axialEq c) pcs
+
+stackHeight' :: GameState -> PieceCoordinate -> Int
+stackHeight' gs = stackHeight pcs
+  where pcs = map fst $ Map.toList (fst $ gsBoard gs)
 
 oneAway :: [PieceCoordinate] -> PieceType -> PieceCoordinate -> [PieceCoordinate]
 oneAway pcs Beetle (x,y,_)  = groundLevel ++ beetleLevel
