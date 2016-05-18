@@ -119,9 +119,10 @@ randomAI gs = do
 validPlayerMoves :: GameState -> [GameState]
 validPlayerMoves gs
   | gsTurn gs == 0 = map (unsafePlacePiece gs (0,0,0)) (validPlacementTypes gs)
-  | otherwise = zipWith (unsafePlacePiece gs) allSpots allTypes
+  | otherwise = zipWith (unsafePlacePiece gs) allSpots allTypes ++ concatMap (\pc -> map (unsafeMovePiece gs pc) (validPieceMoves gs pc)) playersPieces
     where allSpots = concat $ permutations (validPlacementSpots gs)
           allTypes = concat $ permutations (validPlacementTypes gs)
+          playersPieces = map fst $ Map.toList $ Map.filter (\p -> hPlayer p == gsCurrPlayer gs) (fst $ gsBoard gs)
 
 validPlacementSpots :: GameState -> [PieceCoordinate]
 validPlacementSpots gs = filter valid possibles
