@@ -2,12 +2,11 @@ module LambdaHive.Types where
 
 import           Data.Graph
 import           Data.List
-import           Data.Map      (Map)
-import qualified Data.Map      as Map
-import           Data.Set      (Set)
-import qualified Data.Set      as Set
+import           Data.Map   (Map)
+import qualified Data.Map   as Map
+import           Data.Set   (Set)
+import qualified Data.Set   as Set
 import           Safe
-import           System.Random
 
 data HivePlayer = Player1 | Player2
   deriving (Show, Eq, Ord)
@@ -47,14 +46,33 @@ type BoardState = (Map PieceCoordinate HivePiece, BoardAdjecency)
 type TurnNumber = Int
 type PlayerHand = [PieceType]
 
+data GameStatus = Win HivePlayer | Draw | InProgress
+  deriving (Show, Eq, Ord)
+
 data GameState = GameState
   { gsCurrPlayer :: HivePlayer
   , gsTurn       :: TurnNumber
   , gsBoard      :: BoardState
   , gsHand1      :: PlayerHand
   , gsHand2      :: PlayerHand
+  , gsStatus     :: GameStatus
   }
   deriving (Show, Eq, Ord)
+
+gameStatus :: BoardState -> GameStatus
+gameStatus bs
+  | player1Win && player2Win = Draw
+  | player1Win = Win Player1
+  | player2Win = Win Player2
+  | otherwise = InProgress
+  where
+    pcs = fst bs
+    queen player = headMay $ Map.toList $ Map.filter (\p -> hPieceType p == Queen && hPlayer p == player) pcs
+    queenSurrounded q = case q of
+      Nothing -> False
+      Just p -> all (flip Map.member pcs . getNeighbor (fst p)) allDirections
+    player1Win = queenSurrounded (queen Player2)
+    player2Win = queenSurrounded (queen Player1)
 
 getPieceCoord :: GameState -> CannonicalId -> Maybe PieceCoordinate
 getPieceCoord gs i = fst <$> headMay (Map.toList $ Map.filter (\p -> hCannonicalId p == i) $ fst $ gsBoard gs)
@@ -79,50 +97,17 @@ allDirections :: [Neighbor]
 allDirections = [TopLeftN,LeftN,BottomLeftN,BottomRightN,RightN,TopRightN]
 
 initGS :: GameState
-initGS = GameState Player1 0 (Map.empty, buildG (0,0) []) startingHand startingHand
-testGS1 :: GameState
-testGS1 = unsafePlacePiece initGS (0,0,0) Spider
-testGS2 :: GameState
-testGS2 = unsafePlacePiece testGS1 (-1,0,0) Queen
-testGS3 :: GameState
-testGS3 = unsafePlacePiece testGS2 (1,0,0) Queen
-testGS4 :: GameState
-testGS4 = unsafePlacePiece testGS3 (-2,0,0) Beetle
-testGS5 :: GameState
-testGS5 = unsafePlacePiece testGS4 (1,-1,0) Ant
-
-testCircle1 :: GameState
-testCircle1 = unsafePlacePiece initGS (1,0,0) Queen
-testCircle2 :: GameState
-testCircle2 = unsafePlacePiece testCircle1 (-1,0,0) Queen
-testCircle3 :: GameState
-testCircle3 = unsafePlacePiece testCircle2 (0,-1,0) Spider
-testCircle4 :: GameState
-testCircle4 = unsafePlacePiece testCircle3 (-1,1,0) Grasshopper
-testCircle5 :: GameState
-testCircle5 = unsafePlacePiece testCircle4 (0,1,0) Ant
-testCircle6 :: GameState
-testCircle6 = unsafePlacePiece testCircle5 (1,0,1) Beetle
-testCircle7 :: GameState
-testCircle7 = unsafePlacePiece testCircle6 (1,-1,0) Ant
-testCircle8 :: GameState
-testCircle8 = unsafePlacePiece testCircle7 (1,-1,1) Beetle
-testCircle9 :: GameState
-testCircle9 = unsafePlacePiece testCircle8 (0,1,1) Beetle
-
-randomAI :: GameState -> IO GameState
-randomAI gs = do
-  let allMoves = validPlayerMoves gs
-  r <- randomRIO (0, length allMoves -1)
-  return (allMoves !! r)
+initGS = GameState Player1 0 (Map.empty, buildG (0,0) []) startingHand startingHand InProgress
 
 validPlayerMoves :: GameState -> [GameState]
 validPlayerMoves gs
   | gsTurn gs == 0 = map (unsafePlacePiece gs (0,0,0)) (validPlacementTypes gs)
-  | otherwise = zipWith (unsafePlacePiece gs) allSpots allTypes ++ concatMap (\pc -> map (unsafeMovePiece gs pc) (validPieceMoves gs pc)) playersPieces
+  | otherwise = allValidPieceMoves ++ allValidPlacements
     where allSpots = concat $ permutations (validPlacementSpots gs)
           allTypes = concat $ permutations (validPlacementTypes gs)
           playersPieces = map fst $ Map.toList $ Map.filter (\p -> hPlayer p == gsCurrPlayer gs) (fst $ gsBoard gs)
+          allValidPlacements = concatMap (\pc -> map (unsafeMovePiece gs pc) (validPieceMoves gs pc)) playersPieces
+          allValidPieceMoves = zipWith (unsafePlacePiece gs) allSpots allTypes
 
 validPlacementSpots :: GameState -> [PieceCoordinate]
 validPlacementSpots gs = filter valid possibles
@@ -268,7 +253,7 @@ removePiece (pcs,ba) c = (newMap, newGraph)
     newGraph = buildG (0,Map.size pcs-1) $ filter (\(e1,e2) -> e1 /= removedId && e2 /= removedId) (edges ba)
 
 unsafeSkipTurn :: GameState -> GameState
-unsafeSkipTurn gs = GameState (nextPlayer gs) (gsTurn gs + 1) (gsBoard gs) (gsHand1 gs) (gsHand2 gs)
+unsafeSkipTurn gs = GameState (nextPlayer gs) (gsTurn gs + 1) (gsBoard gs) (gsHand1 gs) (gsHand2 gs) (gsStatus gs)
 
 unsafeMovePiece :: GameState -> PieceCoordinate -> PieceCoordinate -> GameState
 unsafeMovePiece gs c1 c2 = GameState
@@ -277,6 +262,7 @@ unsafeMovePiece gs c1 c2 = GameState
                          , gsBoard = (newMap, newGraph)
                          , gsHand1 = gsHand1 gs
                          , gsHand2 = gsHand2 gs
+                         , gsStatus = newStatus
                          }
   where
         pcs = fst bs
@@ -289,6 +275,7 @@ unsafeMovePiece gs c1 c2 = GameState
         oldEdges = filter (\(e1,e2) -> e1 /= pieceId && e2 /= pieceId) (edges ba)
         adjacents = Map.filterWithKey (\k _ -> adjacentCoords c2 k) pcs
         newGraph = buildG (0,Map.size newMap - 1) $ oldEdges ++ newEdges
+        newStatus = gameStatus (newMap, newGraph)
 
 unsafePlacePiece :: GameState -> PieceCoordinate -> PieceType -> GameState
 unsafePlacePiece gs c t = GameState
@@ -297,6 +284,7 @@ unsafePlacePiece gs c t = GameState
                         , gsBoard = (newMap, newGraph)
                         , gsHand1 = hand1
                         , gsHand2 = hand2
+                        , gsStatus = newStatus
                         }
   where
     bs = gsBoard gs
@@ -315,3 +303,4 @@ unsafePlacePiece gs c t = GameState
     nextHand = delete t $ currPlayersHand gs
     hand1 = if gsCurrPlayer gs == Player1 then nextHand else gsHand1 gs
     hand2 = if gsCurrPlayer gs == Player2 then nextHand else gsHand2 gs
+    newStatus = gameStatus (newMap, newGraph)

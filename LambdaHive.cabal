@@ -16,7 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   ghc-options:         -Wall
-  exposed-modules:     Data.SGF.Hive, LambdaHive.Types, LambdaHive.SVG.Printer, LambdaHive.Parser.Move
+  exposed-modules:     Data.SGF.Hive, LambdaHive.Types, LambdaHive.Canvas, LambdaHive.Parser.Move, LambdaHive.AI
   build-depends:       base >= 4.7 && < 5
                      , trifecta
                      , containers
@@ -27,12 +27,13 @@ library
                      , diagrams
                      , diagrams-lib
                      , diagrams-core
-                     , diagrams-svg
                      , diagrams-contrib
                      , diagrams-canvas
                      , blank-canvas
                      , colour
                      , safe
+                     , stm
+                     , parallel
   default-language:    Haskell2010
 
 executable LambdaHive-exe
@@ -41,6 +42,13 @@ executable LambdaHive-exe
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , LambdaHive
+                     , trifecta
+                     , diagrams
+                     , diagrams-lib
+                     , diagrams-core
+                     , diagrams-contrib
+                     , diagrams-canvas
+                     , blank-canvas
   default-language:    Haskell2010
 
 test-suite LambdaHive-test
