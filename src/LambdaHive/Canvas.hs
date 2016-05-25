@@ -4,6 +4,7 @@ module LambdaHive.Canvas  where
 
 import           Data.List
 import qualified Data.Map                as Map
+import qualified Data.Text               as Text
 import           Diagrams.Backend.Canvas
 import           Diagrams.Prelude
 import           LambdaHive.Types
@@ -15,9 +16,9 @@ hiveHex :: GameState -> PieceCoordinate -> Diagram B
 hiveHex gs pc = text (intercalate ">" stackText) # fontSizeL (0.5 / genericLength stackText) # fc (fontColor player)
               <> hex # fc (color player) # lc black # lwN 0.01
   where
-    bs = fst $ gsBoard gs
+    bs = bsCoords $ gsBoard gs
     hp = (Map.!) bs pc
-    stackText = map (hCannonicalId . snd)
+    stackText = map (Text.unpack . hCannonicalId . snd)
               $ sortOn (\((_,_,h),_) -> -h)
               $ Map.toList $ Map.filterWithKey (\k _ -> axialEq pc k) bs
     color Player1 = lavender
@@ -45,7 +46,7 @@ gameStateDiagram gs = position currState
     currState = map (\(pc,_) -> (coordToPoint pc, hiveHex gs pc))
               $ Map.toList
               $ Map.filterWithKey (\pc _ -> topOfTheStack (gsBoard gs) pc)
-              $ fst $ gsBoard gs
+              $ bsCoords $ gsBoard gs
 
 possibleMoves :: GameState -> PieceCoordinate -> Diagram B
 possibleMoves gs pc

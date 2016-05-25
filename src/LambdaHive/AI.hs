@@ -1,15 +1,18 @@
 module LambdaHive.AI where
 
 import           Control.Parallel.Strategies
+import           Data.Graph.Inductive.Query.ArtPoint
 import           Data.List
+import           Data.Maybe
 import           LambdaHive.Types
 import           System.Random
 
-data GameTree = GameTree GameState [GameTree]
-  deriving (Eq,Ord,Show)
+data GameTree a = GameTree a [GameTree a]
+  deriving (Eq,Show)
 
-data HiveAI = RandomAI | Minimax Int
-  deriving (Eq,Ord,Show)
+data HiveAI = RandomAI | Minimax Int ScoreAlgorithm
+
+type ScoreAlgorithm = HivePlayer -> GameState -> Integer
 
 aiMove :: HiveAI -> GameState -> IO GameState
 aiMove ai gs
@@ -19,38 +22,45 @@ aiMove ai gs
     allMoves = validPlayerMoves gs
     go RandomAI = do
       r <- randomRIO (0, length allMoves -1)
-      return (allMoves !! r)
-    go (Minimax i) = do
-      let (GameTree _ ts) = prune i $ buildTree gs
-      let stateScores = map (\t -> (minimax score1 (gsCurrPlayer gs) t,t)) ts
+      let mv = allMoves !! r
+      return $ fromJust $ genGameState gs [mv]
+    go (Minimax i s) = do
+      let (GameTree _ ts) = prune i $ buildTree s gs
+      let stateScores = map (\t -> (minimax False t,t)) ts
       let bestScore = fst $ head $ sortOn fst stateScores
       let bestStates = filter ((==) bestScore . fst) stateScores
       r <- randomRIO (0, length bestStates - 1)
-      let (GameTree ngs _) = snd $ bestStates !! r
-      return ngs
+      let (GameTree mv _) = snd $ bestStates !! r
+      return $ fromJust $ genGameState gs $ map fst mv
 
-buildTree :: GameState -> GameTree
-buildTree gs = GameTree gs $ map buildTree $ validPlayerMoves gs
+buildTree :: ScoreAlgorithm -> GameState -> GameTree [(HiveMove, Integer)]
+buildTree s gs = go [(NoOp, s currPlayer gs)]
+  where
+    currPlayer = gsCurrPlayer gs
+    go :: [(HiveMove, Integer)] -> GameTree [(HiveMove, Integer)]
+    go hms = GameTree hms (map go cGs)
+      where cGs = map (\nmv -> hms ++ [(nmv, s currPlayer $ fromJust $ makeMove currState nmv)]) $ validPlayerMoves currState
+            currState = fromJust $ genGameState gs (map fst hms)
 
-prune :: Int -> GameTree -> GameTree
+prune :: Int -> GameTree a -> GameTree a
 prune level = go 0
   where
-    go i (GameTree gs ts)
-      | i < level = GameTree gs (map (go (i+1)) ts)
-      | otherwise = GameTree gs []
+    go i (GameTree b ts)
+      | i < level = GameTree b (map (go (i+1)) ts)
+      | otherwise = GameTree b []
 
-minimax :: (HivePlayer -> GameState -> Integer) -> HivePlayer -> GameTree -> Integer
-minimax s hp (GameTree gs []) = s hp gs
-minimax s hp (GameTree gs ts)
-  | isPlayersTurn = maximum $ parMap rpar (minimax s hp) ts
-  | otherwise = minimum $ parMap rpar (minimax s hp) ts
-  where isPlayersTurn = gsCurrPlayer gs == hp
+minimax :: Bool -> GameTree [(HiveMove, Integer)] -> Integer
+minimax _ (GameTree hms []) = snd $ last hms
+minimax True (GameTree _ ts) = maximum $ parMap rseq (minimax False) ts
+minimax False (GameTree _ ts) = minimum $ parMap rseq (minimax True) ts
 
-score1 :: HivePlayer -> GameState -> Integer
+score1 :: ScoreAlgorithm
 score1 p gs = case prog of
   Win wp -> if wp == p then 1000 else -1000
   Draw -> -100
-  InProgress -> genericLength hand - genericLength startingHand
+  InProgress -> sum artPiecePoints
   where
     prog = gsStatus gs
-    hand = currPlayersHand gs
+    bs = gsBoard gs
+    artPoints = ap $ bsAdjacency bs
+    artPiecePoints = map ((\piece -> if hPlayer piece == p then -1 else 1) . getHivePieceFromId gs) artPoints

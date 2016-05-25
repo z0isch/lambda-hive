@@ -1,7 +1,6 @@
 module Main where
 
 import           Control.Concurrent
-import           Data.Maybe
 import           Diagrams.Backend.Canvas
 import           Diagrams.Prelude
 import qualified Graphics.Blank          as B
@@ -16,9 +15,9 @@ renderHiveCanvas = renderDia Canvas (CanvasOptions (dims $ V2 600 600))
 
 main :: IO ()
 main = do
-  canvas <- newMVar $ renderHiveCanvas $ gameStateDiagram initGS
+  canvas <- newMVar $ renderHiveCanvas $ gameStateDiagram testGS6
   canvasThread <- forkIO $ B.blankCanvas 3000 $ canvasLoop canvas
-  mainLoop initGS canvas canvasThread (Minimax 3)
+  mainLoop testGS6 canvas canvasThread (Minimax 2 score1)
 
 canvasLoop :: MVar (B.Canvas ()) -> B.DeviceContext -> IO ()
 canvasLoop canvas context = do
@@ -32,7 +31,7 @@ mainLoop :: GameState -> MVar (B.Canvas ()) -> ThreadId -> HiveAI  -> IO ()
 mainLoop gs canvas canvasThread ai = do
   d <- getLine
   case d of
-    "" -> gameOver "Game Cancelled"
+    "" -> showGameOver "Game Cancelled"
     _ -> do
       let piece = Tri.parseString (pieceParser <* Tri.eof) mempty d
       case piece of
@@ -40,7 +39,13 @@ mainLoop gs canvas canvasThread ai = do
         Tri.Failure _ -> do
           let move = Tri.parseString (moveParser <* Tri.eof) mempty d
           case move of
-            Tri.Success sm -> makeMove sm
+            Tri.Success sm -> do
+              let mGs = makeMove gs sm
+              case mGs of
+                Just ngs -> playG ngs
+                Nothing -> do
+                    putStrLn "Enter a valid move or piece"
+                    continueWith gs
             Tri.Failure _ -> do
                 putStrLn "Enter a valid move or piece"
                 continueWith gs
@@ -48,46 +53,22 @@ mainLoop gs canvas canvasThread ai = do
       continueWith g = mainLoop g canvas canvasThread ai
       sendToCanvas = swapMVar canvas . renderHiveCanvas
       showMoves p =  do
-        let foundPiece = getPieceCoord gs (getCanonicalId p)
+        let foundPiece = getPieceCoord gs (getCannonicalId p)
         case foundPiece of
           Just pc -> do
              _ <- sendToCanvas $ possibleMoves gs pc <> gameStateDiagram gs
              continueWith gs
           Nothing -> continueWith gs
-      makeMove (SlideMove piece1@(PieceMove _ pm1) piece2 dir) = do
-        let foundPiece1 = getPieceCoord gs (getCanonicalId piece1)
-        let foundPiece2 = getPieceCoord gs (getCanonicalId piece2)
-        let moveCoord = flip getNeighbor dir <$> foundPiece2
-        case foundPiece1 of
-          Just fp1 -> if isJust foundPiece1 && isJust foundPiece2
-            then playG $ unsafeMovePiece gs fp1 (fromJust moveCoord)
-            else continueWith gs
-          Nothing -> if isJust foundPiece2
-            then case pm1 of
-              QueenMove -> playG $ unsafePlacePiece gs (fromJust moveCoord) Queen
-              PieceMoveType pt1 _ -> playG $ unsafePlacePiece gs (fromJust moveCoord) pt1
-            else continueWith gs
-      makeMove (TopMove piece1 piece2) = do
-        let foundPiece1 = getPieceCoord gs (getCanonicalId piece1)
-        let foundPiece2 = getPieceCoord gs (getCanonicalId piece2)
-        if isJust foundPiece1 && isJust foundPiece2
-        then do
-            let fp2@(x2,y2,_) = fromJust foundPiece2
-            playG $ unsafeMovePiece gs (fromJust foundPiece1) (x2,y2,stackHeight' gs fp2)
-        else continueWith gs
-      makeMove (FirstMove (PieceMove _ QueenMove)) = playG $ unsafePlacePiece gs (0,0,0) Queen
-      makeMove (FirstMove (PieceMove _ (PieceMoveType pT _))) = playG $ unsafePlacePiece gs (0,0,0) pT
       playG g = do
         _ <- sendToCanvas $ gameStateDiagram g
-        threadDelay 350000
         case gsStatus g of
-          Win p -> gameOver $ show p ++ " wins"
-          Draw -> gameOver "Draw"
+          Win p -> showGameOver $ show p ++ " wins"
+          Draw -> showGameOver "Draw"
           InProgress -> do
             newGs <- aiMove ai g
             _ <- sendToCanvas $ gameStateDiagram newGs
             continueWith newGs
-      gameOver s = do
+      showGameOver s = do
         putStrLn s
         killThread canvasThread
 
@@ -101,6 +82,8 @@ testGS4 :: GameState
 testGS4 = unsafePlacePiece testGS3 (-2,0,0) Beetle
 testGS5 :: GameState
 testGS5 = unsafePlacePiece testGS4 (1,-1,0) Ant
+testGS6 :: GameState
+testGS6 = unsafeMovePiece testGS5 (-2,0,0) (-1,0,1)
 
 testCircle1 :: GameState
 testCircle1 = unsafePlacePiece initGS (1,0,0) Queen
