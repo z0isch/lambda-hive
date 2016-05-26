@@ -13,12 +13,13 @@ hex :: Diagram B
 hex = regPoly 6 1 # rotateBy (1/12)
 
 hiveHex :: GameState -> PieceCoordinate -> Diagram B
-hiveHex gs pc = text (intercalate ">" stackText) # fontSizeL (0.5 / genericLength stackText) # fc (fontColor player)
-              <> hex # fc (color player) # lc black # lwN 0.01
+hiveHex gs pc = text (intercalate ">" stackText) # fontSizeL (0.35 / genericLength stackText) # fc (fontColor player)
+              <> hex # fc (color player) # lc black # lwN 0.005
   where
     bs = bsCoords $ gsBoard gs
     hp = (Map.!) bs pc
-    stackText = map (Text.unpack . hCannonicalId . snd)
+    stackText = map ((\p -> Text.unpack (hCannonicalId p) ++ "-" ++ show (hPieceId p))
+                . snd)
               $ sortOn (\((_,_,h),_) -> -h)
               $ Map.toList $ Map.filterWithKey (\k _ -> axialEq pc k) bs
     color Player1 = lavender
@@ -28,9 +29,9 @@ hiveHex gs pc = text (intercalate ">" stackText) # fontSizeL (0.5 / genericLengt
     player = hPlayer hp
 
 possibleMoveHex :: Diagram B
-possibleMoveHex = regPoly 6 1 # rotateBy (1/12) # lc green # lwN 0.01
+possibleMoveHex = regPoly 6 1 # rotateBy (1/12) # lc green # lwN 0.005
 moveFromHex :: Diagram B
-moveFromHex = regPoly 6 1 # rotateBy (1/12) # lc red # lwN 0.01
+moveFromHex = regPoly 6 1 # rotateBy (1/12) # lc red # lwN 0.005
 
 coordToPoint :: PieceCoordinate -> P2 Double
 coordToPoint (q,r,_) =  p2 (x,y)

@@ -51,6 +51,7 @@ executable LambdaHive-exe
                      , diagrams-contrib
                      , diagrams-canvas
                      , blank-canvas
+                     , fgl
   default-language:    Haskell2010
 
 test-suite LambdaHive-test

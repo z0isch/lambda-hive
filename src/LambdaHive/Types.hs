@@ -5,14 +5,15 @@ module LambdaHive.Types where
 import           Control.Monad
 import           Data.Bimap                          (Bimap)
 import qualified Data.Bimap                          as Bimap
-import           Data.Graph.Inductive.Graph          (delEdges, delNode, empty,
-                                                      inn, insEdges, insNode,
-                                                      out)
+import           Data.Graph.Inductive.Graph          (delEdges, delNode, edges,
+                                                      empty, inn, insEdges,
+                                                      insNode, mkUGraph, nodes,
+                                                      out, prettify)
 import           Data.Graph.Inductive.PatriciaTree
 import qualified Data.Graph.Inductive.Query.ArtPoint as Fgl
 import           Data.List
-import           Data.Map                            (Map)
-import qualified Data.Map                            as Map
+import           Data.Map.Strict                     (Map)
+import qualified Data.Map.Strict                     as Map
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Set                            (Set)
@@ -97,13 +98,13 @@ startingHand :: [PieceType]
 startingHand = [Ant,Ant,Ant,Queen,Beetle,Beetle,Grasshopper,Grasshopper,Grasshopper,Spider,Spider]
 
 getHivePieceFromCannonicalId :: GameState -> CannonicalId -> HivePiece
-getHivePieceFromCannonicalId gs cId = bsCoords bs Map.! pieceCoord
+getHivePieceFromCannonicalId gs cId = Map.findWithDefault (error "getHivePieceFromCannonicalId") pieceCoord $ bsCoords bs
   where
     bs = gsBoard gs
     pieceCoord = bsCannonicalIdMap bs Bimap.! cId
 
 getHivePieceFromId :: GameState -> PieceId -> HivePiece
-getHivePieceFromId gs pId = bsCoords bs Map.! pieceCoord
+getHivePieceFromId gs pId = Map.findWithDefault (error "getHivePieceFromCannonicalId") pieceCoord $ bsCoords bs
   where
     bs = gsBoard gs
     pieceCoord = bsIdMap bs Bimap.! pId
@@ -163,7 +164,7 @@ genGameState = foldM makeMove
 makeMove :: GameState -> HiveMove -> Maybe GameState
 makeMove gs (SlideMove piece1@(PieceMove _ pm1) piece2 dir) =
   case foundPiece1 of
-    Just fp1 ->  if isJust foundPiece1 && isJust foundPiece2
+    Just fp1 -> if isJust foundPiece2
       then Just $ unsafeMovePiece gs fp1 (mx,my,0)
       else Nothing
     Nothing -> if isJust foundPiece2
@@ -194,7 +195,7 @@ validPlayerMoves gs
     where
           genFirstMove pT = FirstMove (PieceMove (gsCurrPlayer gs) newPiece)
             where newState = unsafePlacePiece gs (0,0,0) pT
-                  newPiece = getPieceMoveIdFromHivePiece $ bsCoords (gsBoard newState) Map.! (0,0,0)
+                  newPiece = getPieceMoveIdFromHivePiece $ Map.findWithDefault (error "validPlayerMoves1") (0,0,0) $ bsCoords (gsBoard newState)
           allSpots = concat $ permutations (validPlacementSpots gs)
           allTypes = concat $ permutations (validPlacementTypes gs)
           playersPieces = map fst $ Map.toList $ Map.filter (\p -> hPlayer p == gsCurrPlayer gs) (bsCoords $ gsBoard gs)
@@ -203,16 +204,19 @@ validPlayerMoves gs
           genPieceMoves pc1 pc2@(x2,y2,h2)
             | h2 > 0 = TopMove (PieceMove (gsCurrPlayer gs) movePiece) (PieceMove (hPlayer onBottomPiece) (getPieceMoveIdFromHivePiece onBottomPiece))
             | otherwise = SlideMove (PieceMove (gsCurrPlayer gs) movePiece) (PieceMove p sp) (oppositeNeighbor d)
-            where movePiece = getPieceMoveIdFromHivePiece $ bsCoords (gsBoard gs) Map.! pc1
-                  onBottomPiece = bsCoords (gsBoard gs) Map.! (x2,y2,0)
+            where movePiece = getPieceMoveIdFromHivePiece $ Map.findWithDefault (error "validPlayerMoves2") pc1 $ bsCoords (gsBoard gs)
+                  onBottomPiece = Map.findWithDefault (error "validPlayerMoves3") (x2,y2,0) $ bsCoords (gsBoard gs)
                   (d,p,sp) = neighbor gs pc2
           genPiecePlacement pC pT = slideMove newPiece (neighbor newState pC)
             where newState = unsafePlacePiece gs pC pT
-                  newPiece = getPieceMoveIdFromHivePiece $ bsCoords (gsBoard newState) Map.! pC
+                  newPiece = getPieceMoveIdFromHivePiece $ Map.findWithDefault (error "validPlayerMoves4") pC $ bsCoords (gsBoard newState)
           slideMove piece (d,p,sp) = SlideMove (PieceMove (gsCurrPlayer gs) piece) (PieceMove p sp) (oppositeNeighbor d)
           neighbor state pC = head
-                  $ map (\(d,pc) -> (d, hPlayer $ bsCoords (gsBoard state) Map.! pc, getPieceMoveIdFromHivePiece $ bsCoords (gsBoard state) Map.! pc))
-                  $ filter (\(_,pc) -> stackHeight' state pc > 0)
+                  $ map (\(d,pc) ->
+                          ( d
+                          , hPlayer $ Map.findWithDefault (error "validPlayerMoves5") pc $ bsCoords $ gsBoard state
+                          , getPieceMoveIdFromHivePiece $ Map.findWithDefault (error $ show pc ++ show (gsBoard state)) pc $ bsCoords $ gsBoard state))
+                  $ filter (\(_,pc) -> Map.member pc $ bsCoords $ gsBoard state)
                   $ map (\d -> (d,getNeighbor pC d)) allDirections
 
 
@@ -247,7 +251,7 @@ validPieceMoves gs c
   | not $ playedBee gs = []
   | not $ topOfTheStack bs c = []
   | not $ oneHiveRuleSatisfied bs c = []
-  | otherwise = pieceTypeMoves (Map.keys pcs) c (hPieceType $ pcs Map.! c)
+  | otherwise = pieceTypeMoves (Map.keys pcs) c (hPieceType $ Map.findWithDefault (error "validPieceMoves") c pcs)
   where bs = gsBoard gs
         pcs = bsCoords bs
 
@@ -359,14 +363,14 @@ adjacentCoords c1 c2
 
 oneHiveRuleSatisfied :: BoardState -> PieceCoordinate -> Bool
 oneHiveRuleSatisfied (BoardState pcs ba _ _) c = pieceId `notElem` Fgl.ap ba
-  where pieceId = hPieceId $ pcs Map.! c
+  where pieceId = hPieceId $ Map.findWithDefault (error "oneHiveRuleSatisfied") c pcs
 
 removePiece :: BoardState -> PieceCoordinate -> BoardState
 removePiece (BoardState pcs ba ids cIds) c = BoardState newMap newGraph newIds newCIds
   where
     newMap = Map.delete c pcs
     removedId = hPieceId coordRemoved
-    coordRemoved= pcs Map.! c
+    coordRemoved= Map.findWithDefault (error "removePiece") c pcs
     newIds = Bimap.delete removedId ids
     newCIds = Bimap.delete (hCannonicalId coordRemoved) cIds
     newGraph = delEdges deletedEdges $ delNode removedId ba
@@ -388,18 +392,26 @@ unsafeMovePiece gs c1 c2 = GameState
         pcs = bsCoords bs
         ba = bsAdjacency bs
         bs = gsBoard gs
-        piece = pcs Map.! c1
+        piece = Map.findWithDefault (error "unsafeMovePiece1") c1 pcs
         pieceId = hPieceId piece
         cPieceId = hCannonicalId piece
         newMap = Map.insert c2 piece $ Map.delete c1 pcs
+        t = if containsAllVertices (delEdges deletedEdges ba) newEdges
+            then True
+            else error $ show (nodes ba) ++ show newEdges ++ show deletedEdges
         deletedEdges = map (\(a,b,_) -> (a,b)) $ out ba pieceId ++ inn ba pieceId
-        newEdges = concatMap ((\i -> [(i,pieceId,()),(pieceId,i,())]) . hPieceId) (Map.elems adjacents)
-        adjacents = Map.filterWithKey (\k _ -> adjacentCoords c2 k) pcs
-        newGraph = insEdges newEdges $ delEdges deletedEdges ba
+        newEdges = concatMap ((\i -> [(i,pieceId,()),(pieceId,i,())]) . hPieceId)
+                 $ Map.elems adjacents
+        adjacents = Map.filterWithKey (\k hp -> hPieceId hp /= pieceId && adjacentCoords c2 k) newMap
+        newGraph = if t then insEdges newEdges $ delEdges deletedEdges ba else undefined
         newBoardState = BoardState newMap newGraph newIds newCIds
         newStatus = gameStatus newBoardState
         newIds = Bimap.adjust (const c2) pieceId $ bsIdMap bs
         newCIds = Bimap.adjust (const c2) cPieceId $ bsCannonicalIdMap bs
+
+containsAllVertices :: Gr () () -> [(Int,Int,())] -> Bool
+containsAllVertices gr es = all (`elem` nodes gr) ns
+  where ns = nub $ map (\(x,_,_) -> x) es ++ map (\(_,y,_) -> y) es
 
 unsafePlacePiece :: GameState -> PieceCoordinate -> PieceType -> GameState
 unsafePlacePiece gs c t = GameState
@@ -414,16 +426,19 @@ unsafePlacePiece gs c t = GameState
     bs = gsBoard gs
     pcs = bsCoords bs
     ba = bsAdjacency bs
-    bothWays i = [(i,newPieceId, ()),(newPieceId,i,())]
+    bothWays i = [(i,newPieceId,()),(newPieceId,i,())]
+    test = if containsAllVertices (insNode (Map.size newMap - 1, ()) ba) newEdges
+        then True
+        else error $ show $ newMap
     newEdges = concatMap (bothWays . hPieceId) (Map.elems adjacents)
-    newGraph = insEdges newEdges $ insNode (Map.size newMap - 1, ()) ba
+    newGraph = if test then insEdges newEdges $ insNode (Map.size newMap - 1, ()) ba else undefined
     connonicalName = playerText (gsCurrPlayer gs)
                     <> pieceText t
                     <> if t== Queen then "" else Text.pack (show (numOfPieceType + 1))
     numOfPieceType = Map.size $ Map.filter (\p-> hPieceType p == t && hPlayer p == gsCurrPlayer gs) pcs
     newMap = Map.insert c (HivePiece (gsCurrPlayer gs) newPieceId t connonicalName) pcs
     newPieceId = Map.size pcs
-    adjacents = Map.filterWithKey (\k _ -> adjacentCoords c k) pcs
+    adjacents = Map.filterWithKey (\k hp -> hPieceId hp /= newPieceId && adjacentCoords c k) newMap
     nextHand = delete t $ currPlayersHand gs
     hand1 = if gsCurrPlayer gs == Player1 then nextHand else gsHand1 gs
     hand2 = if gsCurrPlayer gs == Player2 then nextHand else gsHand2 gs
