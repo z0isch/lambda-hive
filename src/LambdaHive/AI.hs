@@ -22,25 +22,24 @@ type ScoreAlgorithm = GameState -> Integer
 aiMove :: HiveAI -> GameState -> IO GameState
 aiMove ai gs
   | null allMoves = return $ unsafeSkipTurn gs
-  | otherwise = go ai
+  | otherwise = do
+    let possibleStates = doAI ai gs
+    r <- randomRIO (0,length possibleStates - 1)
+    return $ possibleStates !! r
   where
     allMoves = validPlayerMoves gs
-    go RandomAI = do
-      r <- randomRIO (0, length allMoves -1)
-      let mv = allMoves !! r
-      return $ fromJust $ genGameState gs [mv]
-    go (Minimax i s) = do
-      let (Node _ ts) = prune i $ buildTree gs
-      let stateScores = map (\t -> (minimax True s t,t)) ts
-      let bestScore = fst $ head $ sortOn fst stateScores
-      let bestStates = filter ((==) bestScore . fst) stateScores
-      r <- randomRIO (0, length bestStates - 1)
-      let (Node mv _) = snd $ bestStates !! r
-      return mv
+
+doAI RandomAI gs = map (fromJust . makeMove gs) $ validPlayerMoves gs
+doAI (Minimax i s) gs = bestStates
+  where
+    (Node _ ts) = prune i $ buildTree gs
+    stateScores = map (\t -> (minimax False s t,t)) ts
+    bestScore = fst $ last $ sortOn fst stateScores
+    bestStates = map ((\(Node m _) -> m) . snd) $ filter ((==) bestScore . fst) stateScores
 
 buildTree :: GameState -> GameTree GameState
-buildTree gs = Node gs $ parMap rseq buildTree cGs
-  where cGs = parMap rseq (fromJust . makeMove gs) $ validPlayerMoves gs
+buildTree gs = Node gs $ map buildTree cGs
+  where cGs = map (fromJust . makeMove gs) $ validPlayerMoves gs
 
 prune :: Int -> GameTree a -> GameTree a
 prune 0 (Node t _) = Node t []
@@ -49,14 +48,14 @@ prune n (Node t ts) = Node t $ map (prune (n-1)) ts
 minimax :: Bool -> ScoreAlgorithm -> GameTree GameState -> Integer
 minimax _ s (Node hms []) = s hms
 minimax True s (Node _ ts) = maximum $ parMap rseq (minimax False s) ts
-minimax False s (Node _ ts) =   minimum $ parMap rseq (minimax True s) ts
+minimax False s (Node _ ts) = minimum $ parMap rseq (minimax True s) ts
 
 score1 :: ScoreAlgorithm
 score1 gs = case prog of
   Win wp -> if wp == p then 1000 else -1000
   Draw -> -100
   InProgress -> sum artPiecePoints
-              + (3 * fromMaybe 0 (breathingRoom <$> queen oposingPlayer))
+              + (5 * fromMaybe 0 (breathingRoom <$> queen oposingPlayer))
               + (-2 * fromMaybe 0 (breathingRoom <$> queen p))
   where
     p = gsCurrPlayer gs

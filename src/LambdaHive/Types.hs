@@ -64,6 +64,7 @@ data GameState = GameState
   , gsHand1      :: PlayerHand
   , gsHand2      :: PlayerHand
   , gsStatus     :: GameStatus
+  , gsMoves :: [(PieceCoordinate,PieceCoordinate)]
   }
   deriving (Show, Eq)
 
@@ -150,7 +151,7 @@ allDirections :: [Neighbor]
 allDirections = [TopLeftN,LeftN,BottomLeftN,BottomRightN,RightN,TopRightN]
 
 initGS :: GameState
-initGS = GameState Player1 0 (BoardState Map.empty empty Bimap.empty Bimap.empty) startingHand startingHand InProgress
+initGS = GameState Player1 0 (BoardState Map.empty empty Bimap.empty Bimap.empty) startingHand startingHand InProgress []
 
 getPieceMoveIdFromHivePiece :: HivePiece -> PieceMoveId
 getPieceMoveIdFromHivePiece hp
@@ -234,9 +235,10 @@ validPlacementSpots gs = filter valid possibles
                         $ Map.filter notCurrentPlayer (topOfStackAdjacents c)
         topOfStackAdjacents c = Map.filterWithKey (\k _ -> topOfTheStack bs k) (adjacents c)
         adjacents c = Map.filterWithKey (\k _ -> adjacentCoords c k) pcs
-        valid c
+        valid c@(_,_,h)
           | c `Map.member` pcs = False
           | not firstTurn && wrongPlayer c = False
+          | h > 0 = False
           | otherwise = True
 
 validPlacementTypes :: GameState -> [PieceType]
@@ -377,7 +379,7 @@ removePiece (BoardState pcs ba ids cIds) c = BoardState newMap newGraph newIds n
     deletedEdges = map (\(a,b,_) -> (a,b)) $ out ba removedId ++ inn ba removedId
 
 unsafeSkipTurn :: GameState -> GameState
-unsafeSkipTurn gs = GameState (nextPlayer gs) (gsTurn gs + 1) (gsBoard gs) (gsHand1 gs) (gsHand2 gs) (gsStatus gs)
+unsafeSkipTurn gs = GameState (nextPlayer gs) (gsTurn gs + 1) (gsBoard gs) (gsHand1 gs) (gsHand2 gs) (gsStatus gs) (gsMoves gs)
 
 unsafeMovePiece :: GameState -> PieceCoordinate -> PieceCoordinate -> GameState
 unsafeMovePiece gs c1 c2 = GameState
@@ -387,6 +389,7 @@ unsafeMovePiece gs c1 c2 = GameState
                          , gsHand1 = gsHand1 gs
                          , gsHand2 = gsHand2 gs
                          , gsStatus = newStatus
+                         , gsMoves = gsMoves gs ++ [(c1,c2)]
                          }
   where
         pcs = bsCoords bs
@@ -396,9 +399,7 @@ unsafeMovePiece gs c1 c2 = GameState
         pieceId = hPieceId piece
         cPieceId = hCannonicalId piece
         newMap = Map.insert c2 piece $ Map.delete c1 pcs
-        t = if containsAllVertices (delEdges deletedEdges ba) newEdges
-            then True
-            else error $ show (nodes ba) ++ show newEdges ++ show deletedEdges
+        t = containsAllVertices (delEdges deletedEdges ba) newEdges  || error (show (nodes ba) ++ show newEdges ++ show deletedEdges)
         deletedEdges = map (\(a,b,_) -> (a,b)) $ out ba pieceId ++ inn ba pieceId
         newEdges = concatMap ((\i -> [(i,pieceId,()),(pieceId,i,())]) . hPieceId)
                  $ Map.elems adjacents
@@ -421,15 +422,15 @@ unsafePlacePiece gs c t = GameState
                         , gsHand1 = hand1
                         , gsHand2 = hand2
                         , gsStatus = newStatus
+                        , gsMoves = gsMoves gs ++ [((0,0,-1),c)]
                         }
   where
     bs = gsBoard gs
     pcs = bsCoords bs
     ba = bsAdjacency bs
     bothWays i = [(i,newPieceId,()),(newPieceId,i,())]
-    test = if containsAllVertices (insNode (Map.size newMap - 1, ()) ba) newEdges
-        then True
-        else error $ show $ newMap
+    test = containsAllVertices (insNode (Map.size newMap - 1, ()) ba) newEdges
+         || error (show $ gsMoves gs ++ [((0,0,-1),c)])
     newEdges = concatMap (bothWays . hPieceId) (Map.elems adjacents)
     newGraph = if test then insEdges newEdges $ insNode (Map.size newMap - 1, ()) ba else undefined
     connonicalName = playerText (gsCurrPlayer gs)

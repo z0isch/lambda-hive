@@ -17,11 +17,10 @@ renderHiveCanvas = renderDia Canvas (CanvasOptions (dims $ V2 800 800))
 
 main :: IO ()
 main = do
-  canvas <- newMVar $ renderHiveCanvas $ gameStateDiagram testGS6
+  canvas <- newMVar $ renderHiveCanvas $ gameStateDiagram testGS7
   canvasThread <- forkIO $ B.blankCanvas 3000 $ canvasLoop canvas
-  putStrLn $ Fgl.prettify $ bsAdjacency $ gsBoard testGS6
-  --aiBattle initGS canvas canvasThread (Minimax 3 score1) RandomAI
-  mainLoop testGS6 canvas canvasThread (Minimax 3 score1)
+  aiBattle testGS7 canvas canvasThread (Minimax 3 score1) RandomAI
+  --mainLoop testGS9 canvas canvasThread (Minimax 3 score1)
 
 canvasLoop :: MVar (B.Canvas ()) -> B.DeviceContext -> IO ()
 canvasLoop canvas context = do
@@ -39,7 +38,6 @@ aiBattle gs canvas canvasThread ai1 ai2 =
     InProgress -> do
       newGs <- aiMove ai1 gs
       _ <- sendToCanvas $ gameStateDiagram newGs
-      putStrLn $ Fgl.prettify $ bsAdjacency $ gsBoard gs
       threadDelay 300000
       case gsStatus newGs of
         Win p -> showGameOver $ show p ++ " wins"
@@ -47,7 +45,6 @@ aiBattle gs canvas canvasThread ai1 ai2 =
         InProgress -> do
           newGs2 <- aiMove ai2 newGs
           _ <- sendToCanvas $ gameStateDiagram newGs2
-          putStrLn $ Fgl.prettify $ bsAdjacency $ gsBoard newGs2
           threadDelay 300000
           continueWith newGs2
   where
@@ -93,7 +90,6 @@ mainLoop gs canvas canvasThread ai = do
           Nothing -> continueWith gs
       playG g = do
         _ <- sendToCanvas $ gameStateDiagram g
-        putStrLn $ Fgl.prettify $ bsAdjacency $ gsBoard g
         threadDelay 300000
         case gsStatus g of
           Win p -> showGameOver $ show p ++ " wins"
@@ -101,7 +97,6 @@ mainLoop gs canvas canvasThread ai = do
           InProgress -> do
             newGs <- aiMove ai g
             _ <- sendToCanvas $ gameStateDiagram newGs
-            putStrLn $ Fgl.prettify $ bsAdjacency $ gsBoard newGs
             continueWith newGs
       showGameOver s = do
         putStrLn s
@@ -128,6 +123,10 @@ testGS6 :: GameState
 testGS6 = makeTestMove testGS5 "bB1 bQ"
 testGS7 :: GameState
 testGS7 = makeTestMove testGS6 "wA1 -bB1"
+testGS8 :: GameState
+testGS8 = makeTestMove testGS7 "bB1 wQ"
+testGS9 :: GameState
+testGS9 = makeTestMove testGS8 "wA1 wQ\\"
 
 testCircle1 :: GameState
 testCircle1 = unsafePlacePiece initGS (1,0,0) Queen
