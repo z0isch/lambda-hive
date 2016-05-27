@@ -1,25 +1,24 @@
 module Main where
 
 import           Control.Concurrent
-import qualified Data.Graph.Inductive.Graph as Fgl
 import           Data.Maybe
 import           Diagrams.Backend.Canvas
 import           Diagrams.Prelude
-import qualified Graphics.Blank             as B
+import qualified Graphics.Blank          as B
 import           LambdaHive.AI
 import           LambdaHive.Canvas
 import           LambdaHive.Parser.Move
 import           LambdaHive.Types
-import qualified Text.Trifecta              as Tri
+import qualified Text.Trifecta           as Tri
 
 renderHiveCanvas :: (Monoid m, Semigroup m) => QDiagram Canvas V2 Double m -> B.Canvas ()
 renderHiveCanvas = renderDia Canvas (CanvasOptions (dims $ V2 800 800))
 
 main :: IO ()
 main = do
-  canvas <- newMVar $ renderHiveCanvas $ gameStateDiagram testGS7
+  canvas <- newMVar $ renderHiveCanvas $ gameStateDiagram initGS
   canvasThread <- forkIO $ B.blankCanvas 3000 $ canvasLoop canvas
-  aiBattle testGS7 canvas canvasThread (Minimax 3 score1) RandomAI
+  aiBattle initGS canvas canvasThread (Minimax 3 score1) RandomAI
   --mainLoop testGS9 canvas canvasThread (Minimax 3 score1)
 
 canvasLoop :: MVar (B.Canvas ()) -> B.DeviceContext -> IO ()

@@ -5,10 +5,9 @@ module LambdaHive.Types where
 import           Control.Monad
 import           Data.Bimap                          (Bimap)
 import qualified Data.Bimap                          as Bimap
-import           Data.Graph.Inductive.Graph          (delEdges, delNode, edges,
-                                                      empty, inn, insEdges,
-                                                      insNode, mkUGraph, nodes,
-                                                      out, prettify)
+import           Data.Graph.Inductive.Graph          (delEdges, delNode, empty,
+                                                      inn, insEdges, insNode,
+                                                      nodes, out)
 import           Data.Graph.Inductive.PatriciaTree
 import qualified Data.Graph.Inductive.Query.ArtPoint as Fgl
 import           Data.List
@@ -64,7 +63,7 @@ data GameState = GameState
   , gsHand1      :: PlayerHand
   , gsHand2      :: PlayerHand
   , gsStatus     :: GameStatus
-  , gsMoves :: [(PieceCoordinate,PieceCoordinate)]
+  , gsMoves      :: [(PieceCoordinate,PieceCoordinate)]
   }
   deriving (Show, Eq)
 
