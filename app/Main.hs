@@ -14,12 +14,22 @@ import qualified Text.Trifecta           as Tri
 renderHiveCanvas :: (Monoid m, Semigroup m) => QDiagram Canvas V2 Double m -> B.Canvas ()
 renderHiveCanvas = renderDia Canvas (CanvasOptions (dims $ V2 800 800))
 
+startTestServer :: B.Options -> IO (MVar (B.Canvas ()), ThreadId)
+startTestServer port = do
+  canvas <- newMVar $ renderHiveCanvas $ gameStateDiagram initGS
+  canvasThread <- forkIO $ B.blankCanvas port $ canvasLoop canvas
+  return (canvas,canvasThread)
+stopTestServer :: ThreadId -> IO ()
+stopTestServer = killThread
+sendToTestServer :: MVar (B.Canvas ()) -> GameState -> IO (B.Canvas ())
+sendToTestServer canvas = swapMVar canvas . renderHiveCanvas . gameStateDiagram
+
 main :: IO ()
 main = do
   canvas <- newMVar $ renderHiveCanvas $ gameStateDiagram initGS
   canvasThread <- forkIO $ B.blankCanvas 3000 $ canvasLoop canvas
-  aiBattle initGS canvas canvasThread (Minimax 3 score1) RandomAI
-  --mainLoop testGS9 canvas canvasThread (Minimax 3 score1)
+  --aiBattle initGS canvas canvasThread (Minimax 3 score1) RandomAI
+  mainLoop initGS canvas canvasThread (Minimax 3 score1)
 
 canvasLoop :: MVar (B.Canvas ()) -> B.DeviceContext -> IO ()
 canvasLoop canvas context = do

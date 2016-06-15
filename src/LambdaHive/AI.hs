@@ -2,22 +2,21 @@
 
 module LambdaHive.AI where
 
-import           Control.Parallel.Strategies
+
+import           AI.Minimax
 import qualified Data.Bimap                          as Bimap
+import           Data.Bool
 import qualified Data.Graph.Inductive.Graph          as Fgl
 import           Data.Graph.Inductive.Query.ArtPoint
 import           Data.List
+import qualified Data.Map.Strict                     as Map
 import           Data.Maybe
 import           Data.Monoid
 import           LambdaHive.Types
 import           System.Random
 
-data GameTree a = Node a [GameTree a]
-  deriving (Eq,Show)
 
-data HiveAI = RandomAI | Minimax Int ScoreAlgorithm
-
-type ScoreAlgorithm = GameState -> Integer
+data HiveAI = RandomAI | Minimax Int (GameState -> Value)
 
 aiMove :: HiveAI -> GameState -> IO GameState
 aiMove ai gs
@@ -28,40 +27,22 @@ aiMove ai gs
       go RandomAI = do
         r <- randomRIO (0, length allMoves -1)
         let mv = allMoves !! r
+        putStrLn "Random Move"
         return $ fromJust $ makeMove gs mv
-      go (Minimax i s) = do
-        let (Node _ ts) = prune i $ buildTree s gs
-        let stateScores = map (\t -> (minimax False t,t)) ts
-        let bestScore = fst $ head $ sortOn fst stateScores
-        let bestStates = filter ((==) bestScore . fst) stateScores
-        r <- randomRIO (0, length bestStates - 1)
-        let (Node mv _) = snd $ bestStates !! r
-        return $ fromJust $ genGameState gs $ map fst mv
+      go (Minimax d s) = do
+        let (mv, score) = searchMove (alphaBeta s) d gs
+        print score
+        return $ fromJust $ makeMove gs mv
 
-buildTree :: ScoreAlgorithm -> GameState -> GameTree [(HiveMove, Integer)]
-buildTree s gs = go [(NoOp, s gs)]
- where
-   go :: [(HiveMove, Integer)] -> GameTree [(HiveMove, Integer)]
-   go hms = Node hms (map go cGs)
-     where cGs = map (\nmv -> hms ++ [(nmv, s $ fromJust $ makeMove currState nmv)]) $ validPlayerMoves currState
-           currState = fromJust $ genGameState gs (map fst hms)
-
-prune :: Int -> GameTree a -> GameTree a
-prune 0 (Node t _) = Node t []
-prune n (Node t ts) = Node t $ map (prune (n-1)) ts
-
-minimax :: Bool -> GameTree [(HiveMove, Integer)] -> Integer
-minimax _ (Node hms []) = snd $ last hms
-minimax True (Node _ ts) = maximum $ parMap rseq (minimax False) ts
-minimax False (Node _ ts) = minimum $ parMap rseq (minimax True) ts
-
-score1 :: ScoreAlgorithm
+score1 :: GameState -> Value
 score1 gs = case prog of
-  Win wp -> if wp == p then 1000 else -1000
-  Draw -> -100
-  InProgress -> sum artPiecePoints
-              + (10 * fromMaybe 0 (breathingRoom <$> queen oposingPlayer))
-              + (-2 * fromMaybe 0 (breathingRoom <$> queen p))
+  Win wp -> if wp == p then maxBound else minBound
+  Draw -> 0
+  InProgress -> Value $
+              sum artPiecePoints
+              + (-100 * fromMaybe 0 opposingQueenBreathingRoom)
+              + (10 * fromMaybe 0 (breathingRoom gs <$> queen p))
+              + (1200 * enoughPiecesToWinVal)
   where
     p = gsCurrPlayer gs
     prog = gsStatus gs
@@ -70,8 +51,8 @@ score1 gs = case prog of
       | p == Player1 = Player2
       | otherwise = Player1
     adjacency = bsAdjacency bs
-    queen pl = (Bimap.!>) (bsIdMap bs) <$> (Bimap.lookup (playerText pl <> "Q") $ bsCannonicalIdMap bs :: Maybe PieceCoordinate)
-    breathingRoom = genericLength . filter (\(_,_,h) -> h ==0) . map ((Bimap.!) (bsIdMap bs)) . Fgl.neighbors adjacency
+    queen pl = (Bimap.!>) (bsIdMap bs) <$> maybeQueen pl
+    maybeQueen pl = Bimap.lookup (playerText pl <> "Q") $ bsCannonicalIdMap bs
     artPoints = ap adjacency
     artPiecePoints = map ((\piece -> if hPlayer piece == p
                                      then -1 * pieceWeight (hPieceType piece)
@@ -81,4 +62,39 @@ score1 gs = case prog of
     pieceWeight Beetle = 3
     pieceWeight Grasshopper = 2
     pieceWeight Ant = 3
-    pieceWeight Queen = 3
+    pieceWeight Queen = 4
+    opposingQueenBreathingRoom = breathingRoom gs <$> queen oposingPlayer
+    enoughPiecesToWin = (>=) (piecesFreeToAttck gs p) <$> opposingQueenBreathingRoom
+    enoughPiecesToWinVal = fromMaybe 0 $ bool (-1) 1 <$> enoughPiecesToWin
+
+piecesFreeToAttck :: GameState -> HivePlayer -> Int
+piecesFreeToAttck gs p = Map.size $ Map.filterWithKey freeToAttack coords
+  where
+    bs = gsBoard gs
+    coords = bsCoords bs
+    adjacency = bsAdjacency bs
+    idMap = bsIdMap bs
+    connMap = bsCannonicalIdMap bs
+    queenText = playerText oposingPlayer <> "Q"
+    queenExists = Bimap.member queenText connMap
+    queenId =  idMap Bimap.!> (connMap Bimap.! queenText)
+    adjacentToQueen = if queenExists
+                      then Fgl.neighbors adjacency queenId
+                      else []
+    oposingPlayer
+      | p == Player1 = Player2
+      | otherwise = Player1
+    freeToAttack pc pl = (hPlayer pl == p)
+                       && (hPieceId pl `notElem` adjacentToQueen)
+                       && not (null $ validPieceMoves gs pc)
+
+breathingRoom :: GameState -> PieceId -> Int
+breathingRoom gs = (-) 6
+                  . genericLength
+                  . nub
+                  . filter (\(_,_,h) -> h == 0)
+                  . map ((Bimap.!) (bsIdMap bs))
+                  . Fgl.neighbors adjacency
+  where
+    bs = gsBoard gs
+    adjacency = bsAdjacency bs
