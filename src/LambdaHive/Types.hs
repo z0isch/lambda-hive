@@ -93,6 +93,19 @@ data HiveMove = NoOp
               | FirstMove PieceMove
   deriving (Eq, Ord, Show)
 
+getMoveString :: HiveMove -> Text
+getMoveString NoOp = ""
+getMoveString (FirstMove pm) = getCannonicalId pm <> " ."
+getMoveString (SlideMove pm1 pm2 n) = getCannonicalId pm1 <> " " <> nStr n pm2
+  where
+    nStr TopLeftN p = "/" <> getCannonicalId p
+    nStr LeftN p = "-" <> getCannonicalId p
+    nStr BottomLeftN p = "\\" <> getCannonicalId p
+    nStr TopRightN p = getCannonicalId p <> "/"
+    nStr RightN p = getCannonicalId p <> "-"
+    nStr BottomRightN p = getCannonicalId p <> "\\"
+getMoveString (TopMove pm1 pm2) = getCannonicalId pm1 <> " " <> getCannonicalId pm2
+
 getCannonicalId :: PieceMove -> Text
 getCannonicalId (PieceMove p QueenMove) = playerText p <> "Q"
 getCannonicalId (PieceMove p (PieceMoveType pT i)) = playerText p <> pieceText pT <> Text.pack (show i)

@@ -18,9 +18,9 @@ import           System.Random
 
 data HiveAI = RandomAI | Minimax Int (GameState -> Value)
 
-aiMove :: HiveAI -> GameState -> IO GameState
+aiMove :: HiveAI -> GameState -> IO (HiveMove, GameState)
 aiMove ai gs
-   | null allMoves = return $ unsafeSkipTurn gs
+   | null allMoves = return (NoOp,unsafeSkipTurn gs)
    | otherwise = go ai
    where
       allMoves = validPlayerMoves gs
@@ -28,19 +28,19 @@ aiMove ai gs
         r <- randomRIO (0, length allMoves -1)
         let mv = allMoves !! r
         putStrLn "Random Move"
-        return $ fromJust $ makeMove gs mv
+        return (mv, fromJust $ makeMove gs mv)
       go (Minimax d s) = do
         let (mv, score) = searchMove (alphaBeta s) d gs
         print score
-        return $ fromJust $ makeMove gs mv
+        return (mv, fromJust $ makeMove gs mv)
 
 score1 :: GameState -> Value
 score1 gs = case prog of
-  Win wp -> if wp == p then maxBound else minBound
+  Win wp -> if wp == p then maxBound-1 else minBound+1
   Draw -> 0
   InProgress -> Value $
               sum artPiecePoints
-              + (-100 * fromMaybe 0 opposingQueenBreathingRoom)
+              + (100 * fromMaybe 0 ((-) 6 <$> opposingQueenBreathingRoom))
               + (10 * fromMaybe 0 (breathingRoom gs <$> queen p))
               + (1200 * enoughPiecesToWinVal)
   where
