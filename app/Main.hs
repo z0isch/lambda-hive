@@ -1,6 +1,8 @@
 module Main where
 
 import           Control.Concurrent
+import           Control.Monad
+import           Data.List.Zipper
 import           Data.Maybe
 import qualified Data.Text               as Text
 import           Data.Time.Clock
@@ -9,6 +11,7 @@ import           Diagrams.Prelude
 import qualified Graphics.Blank          as B
 import           LambdaHive.AI
 import           LambdaHive.Canvas
+import           LambdaHive.Genetic
 import           LambdaHive.Parser.Move
 import           LambdaHive.Types
 import           System.IO
@@ -29,12 +32,18 @@ sendToTestServer canvas = swapMVar canvas . renderHiveCanvas . gameStateDiagram
 
 main :: IO ()
 main = do
+  --getRandomBeaters
   canvas <- newMVar $ renderHiveCanvas $ gameStateDiagram initGS
+  canvasThread <- forkIO $ B.blankCanvas 3000 $ canvasLoop canvas
+  --game <- getGameFromFile "65923.143032s.hive"
+  --replayGame (fromList (tail game)) canvas canvasThread
   t <- getCurrentTime
   gameLog <- openFile (show (utctDayTime t) ++ ".hive") WriteMode
-  canvasThread <- forkIO $ B.blankCanvas 3000 $ canvasLoop canvas
-  aiBattle gameLog initGS canvas canvasThread (Minimax 3 score1) RandomAI
-  --mainLoop initGS canvas canvasThread (Minimax 3 score1)
+  --aiBattle gameLog initGS canvas canvasThread
+    --(Minimax (read "ScoreWeights {swPlayerArtPoints = 61, swOppArtPoints = 98, swOppQBreathing = 57, swPlayerQBreathing = 58, swPiecesToWin = 54}") 3 score1)
+    --RandomAI
+  playerVsAI gameLog initGS True canvas canvasThread
+    (Minimax ScoreWeights {swPlayerArtPoints = 50, swOppArtPoints = 50, swOppQBreathing = 100, swPlayerQBreathing = 33, swPiecesToWin = 85, swPlayerPiecesOnTop = 85, swOppPiecesOnTop = 25} 3 score1)
 
 canvasLoop :: MVar (B.Canvas ()) -> B.DeviceContext -> IO ()
 canvasLoop canvas context = do
@@ -43,6 +52,19 @@ canvasLoop canvas context = do
     B.clearRect (0,0,B.width context,B.width context)
     c
   canvasLoop canvas context
+
+replayGame :: ScoreWeights -> Zipper GameState -> MVar (B.Canvas ()) -> ThreadId -> IO ()
+replayGame sw gs canvas canvasThread = do
+  _ <- swapMVar canvas $ renderHiveCanvas gDia
+  hSetBuffering stdin NoBuffering
+  d <- getChar
+  case d of
+    'f' -> replayGame sw (right gs) canvas canvasThread
+    'b' -> replayGame sw (left gs) canvas canvasThread
+    _ -> replayGame sw gs canvas canvasThread
+  where
+    gDia = gameStateDiagram (cursor gs)
+          ||| text (show $ score1 sw $ cursor gs) # fontSizeL 0.25
 
 aiBattle :: Handle -> GameState -> MVar (B.Canvas ()) -> ThreadId -> HiveAI -> HiveAI -> IO ()
 aiBattle gH gs canvas canvasThread ai1 ai2 =
@@ -71,56 +93,75 @@ aiBattle gH gs canvas canvasThread ai1 ai2 =
       putStrLn s
       killThread canvasThread
 
-mainLoop :: GameState -> MVar (B.Canvas ()) -> ThreadId -> HiveAI -> IO ()
-mainLoop gs canvas canvasThread ai = do
-  d <- getLine
-  case d of
-    "end" -> showGameOver "Game Cancelled"
-    _ -> do
-      let piece = Tri.parseString (pieceParser <* Tri.eof) mempty d
-      case piece of
-        Tri.Success p -> showMoves p
-        Tri.Failure _ -> do
-          let move = Tri.parseString (moveParser <* Tri.eof) mempty d
-          case move of
-            Tri.Success sm -> do
-              let mGs = makeMove gs sm
-              case mGs of
-                Just ngs -> do
-                  print sm
-                  playG ngs
-                Nothing -> do
-                    putStrLn "Enter a valid move or piece"
-                    continueWith gs
+playerVsAI :: Handle -> GameState -> Bool -> MVar (B.Canvas ()) -> ThreadId -> HiveAI -> IO ()
+playerVsAI gH gs aiFirst canvas canvasThread ai =
+  if aiFirst
+  then go aiTurn playerTurn
+  else go playerTurn aiTurn
+  where
+    go t1 t2 = do
+      ngs <- t1 gs
+      case ngs of
+        Nothing -> return ()
+        Just g -> do
+          nngs <- t2 g
+          case nngs of
+            Nothing -> return ()
+            Just g2 -> playerVsAI gH g2 aiFirst canvas canvasThread ai
+    aiTurn iGs = do
+      (mv,newGs) <- aiMove ai iGs
+      _ <- sendToCanvas $ gameStateDiagram newGs ||| (text (scoreText newGs) # fontSizeL 0.25)
+      _ <- saveMove mv
+      threadDelay 30000
+      print mv
+      case gsStatus newGs of
+        Win p -> showGameOver $ show p ++ " wins"
+        Draw -> showGameOver "Draw"
+        _ -> return $ Just newGs
+    playerTurn iGs = do
+      d <- getLine
+      case d of
+        "end" -> showGameOver "Game Cancelled"
+        _ -> do
+          let piece = Tri.parseString (pieceParser <* Tri.eof) mempty d
+          case piece of
+            Tri.Success p -> case getPieceCoord gs (getCannonicalId p) of
+              Just pc -> do
+                 _ <- sendToCanvas $ possibleMoves gs pc <> gameStateDiagram gs
+                 playerTurn iGs
+              Nothing -> playerTurn iGs
             Tri.Failure _ -> do
-                putStrLn "Enter a valid move or piece"
-                continueWith gs
-    where
-      continueWith g = mainLoop g canvas canvasThread ai
-      sendToCanvas = swapMVar canvas . renderHiveCanvas
-      showMoves p =  do
-        let foundPiece = getPieceCoord gs (getCannonicalId p)
-        case foundPiece of
-          Just pc -> do
-             _ <- sendToCanvas $ possibleMoves gs pc <> gameStateDiagram gs
-             continueWith gs
-          Nothing -> continueWith gs
-      playG g = do
-        _ <- sendToCanvas $ gameStateDiagram g
-        threadDelay 300000
-        case gsStatus g of
-          Win p -> showGameOver $ show p ++ " wins"
-          Draw -> showGameOver "Draw"
-          InProgress -> do
-            (_,newGs) <- aiMove ai g
-            _ <- sendToCanvas $ gameStateDiagram newGs ||| (text (scoreText newGs) # fontSizeL 0.25)
-            continueWith newGs
-      scoreText sGs = case ai of
-        Minimax _ sAlg -> show $ sAlg sGs
-        _ -> ""
-      showGameOver s = do
-        putStrLn s
-        killThread canvasThread
+              let move = Tri.parseString (moveParser <* Tri.eof) mempty d
+              case move of
+                Tri.Success sm -> do
+                  let mGs = makeMove iGs sm
+                  case mGs of
+                    Just ngs -> do
+                      print sm
+                      _ <- sendToCanvas $ gameStateDiagram ngs
+                      _ <- saveMove sm
+                      threadDelay 30000
+                      case gsStatus ngs of
+                        Win p -> showGameOver $ show p ++ " wins"
+                        Draw -> showGameOver "Draw"
+                        _ -> return $ Just ngs
+                    Nothing -> do
+                        putStrLn "Enter a valid move or piece"
+                        playerTurn iGs
+                Tri.Failure _ -> do
+                    putStrLn "Enter a valid move or piece"
+                    playerTurn iGs
+    sendToCanvas = swapMVar canvas . renderHiveCanvas
+    scoreText sGs = case ai of
+      Minimax sw _ sAlg -> show $ sAlg sw sGs
+      _ -> ""
+    saveMove mv = do
+      hPutStrLn gH $ Text.unpack $ getMoveString mv
+      hFlush gH
+    showGameOver s = do
+      putStrLn s
+      killThread canvasThread
+      return Nothing
 
 makeTestMove :: GameState -> String -> GameState
 makeTestMove gs s = fromJust $ makeMove gs sm
@@ -129,5 +170,5 @@ makeTestMove gs s = fromJust $ makeMove gs sm
 testNextState :: GameState -> [GameState]
 testNextState g = map (fromJust . makeMove g) $ validPlayerMoves g
 
-getGameFromFile :: FilePath -> IO GameState
-getGameFromFile f = foldl makeTestMove initGS . lines <$> readFile f
+getGameFromFile :: FilePath -> IO [GameState]
+getGameFromFile f = scanl makeTestMove initGS . lines <$> readFile f

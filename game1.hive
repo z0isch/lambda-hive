@@ -13,3 +13,6 @@ bA2 -bQ
 wA1 wA2-
 bA2 \bB1
 wA1 bA2-
+bB2 bA1-
+wB1 wA1-
+bB2 bB1

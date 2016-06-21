@@ -2,7 +2,6 @@
 
 module LambdaHive.AI where
 
-
 import           AI.Minimax
 import qualified Data.Bimap                          as Bimap
 import           Data.Bool
@@ -12,11 +11,19 @@ import           Data.List
 import qualified Data.Map.Strict                     as Map
 import           Data.Maybe
 import           Data.Monoid
+import           Data.Time.Clock
 import           LambdaHive.Types
 import           System.Random
 
+data HiveAI = RandomAI | Minimax ScoreWeights Int (ScoreWeights -> GameState -> Value)
+instance Eq HiveAI where
+  (==) RandomAI RandomAI = True
+  (==) Minimax{} Minimax{} = True
+  (==) _ _ = False
 
-data HiveAI = RandomAI | Minimax Int (GameState -> Value)
+instance Show HiveAI where
+  show RandomAI = "RandomAI"
+  show (Minimax _ d _) = "Minimax - depth: " ++ show d
 
 aiMove :: HiveAI -> GameState -> IO (HiveMove, GameState)
 aiMove ai gs
@@ -29,20 +36,37 @@ aiMove ai gs
         let mv = allMoves !! r
         putStrLn "Random Move"
         return (mv, fromJust $ makeMove gs mv)
-      go (Minimax d s) = do
-        let (mv, score) = searchMove (alphaBeta s) d gs
+      go (Minimax sw d s) = do
+        t <- getCurrentTime
+        let (mv, score) = searchMove (alphaBeta (s sw)) d gs
         print score
+        t2 <- getCurrentTime
+        print $ diffUTCTime t2 t
         return (mv, fromJust $ makeMove gs mv)
 
-score1 :: GameState -> Value
-score1 gs = case prog of
+data ScoreWeights = ScoreWeights
+  { swPlayerArtPoints   :: Int
+  , swOppArtPoints      :: Int
+  , swOppQBreathing     :: Int
+  , swPlayerQBreathing  :: Int
+  , swPiecesToWin       :: Int
+  , swPlayerPiecesOnTop:: Int
+  , swOppPiecesOnTop    :: Int
+  }
+  deriving (Show, Eq, Read)
+
+score1 :: ScoreWeights -> GameState -> Value
+score1 sw gs = case prog of
   Win wp -> if wp == p then maxBound-1 else minBound+1
   Draw -> 0
   InProgress -> Value $
-              sum artPiecePoints
-              + (100 * fromMaybe 0 ((-) 6 <$> opposingQueenBreathingRoom))
-              + (10 * fromMaybe 0 (breathingRoom gs <$> queen p))
-              + (1200 * enoughPiecesToWinVal)
+              (swPlayerArtPoints sw * (-1) * getPieceWeightSum playerArtPoints)
+              + (swOppArtPoints sw * getPieceWeightSum oposingArtPoints)
+              + (swOppQBreathing sw * fromMaybe 0 ((-) 6 <$> opposingQueenBreathingRoom))
+              + (swPlayerQBreathing sw * (-1) * fromMaybe 0 ((-) 6 . breathingRoom gs <$> queen p))
+              + (swPiecesToWin sw * fromMaybe 0 (bool (-1) 1 <$> enoughPiecesToWin))
+              + (swPlayerPiecesOnTop sw * pieceOnTopSum gs p)
+              + (swOppPiecesOnTop sw * pieceOnTopSum gs oposingPlayer)
   where
     p = gsCurrPlayer gs
     prog = gsStatus gs
@@ -53,19 +77,35 @@ score1 gs = case prog of
     adjacency = bsAdjacency bs
     queen pl = (Bimap.!>) (bsIdMap bs) <$> maybeQueen pl
     maybeQueen pl = Bimap.lookup (playerText pl <> "Q") $ bsCannonicalIdMap bs
-    artPoints = ap adjacency
-    artPiecePoints = map ((\piece -> if hPlayer piece == p
-                                     then -1 * pieceWeight (hPieceType piece)
-                                     else pieceWeight $ hPieceType piece)
-                         . getHivePieceFromId gs) artPoints
-    pieceWeight Spider = 1
-    pieceWeight Beetle = 3
-    pieceWeight Grasshopper = 2
-    pieceWeight Ant = 3
-    pieceWeight Queen = 4
+    artPoints = map (getHivePieceFromId gs) $ ap adjacency
+    playerArtPoints = filter (\piece -> hPlayer piece == p) artPoints
+    oposingArtPoints = filter (\piece -> hPlayer piece /= p) artPoints
     opposingQueenBreathingRoom = breathingRoom gs <$> queen oposingPlayer
     enoughPiecesToWin = (>=) (piecesFreeToAttck gs p) <$> opposingQueenBreathingRoom
-    enoughPiecesToWinVal = fromMaybe 0 $ bool (-1) 1 <$> enoughPiecesToWin
+    getPieceWeightSum = sum . map (pieceWeight . hPieceType)
+
+pieceWeight :: PieceType -> Int
+pieceWeight Spider = 1
+pieceWeight Beetle = 3
+pieceWeight Grasshopper = 2
+pieceWeight Ant = 3
+pieceWeight Queen = 6
+
+mapSum :: (Num a) => (k -> b -> a) -> Map.Map k b -> a
+mapSum f = Map.foldlWithKey' (\s k v -> s + f k v) 0
+
+pieceOnTopSum :: GameState -> HivePlayer -> Int
+pieceOnTopSum gs p = sumWeightOfTrapped $ Map.filterWithKey onTopPiece coords
+  where
+    bs = gsBoard gs
+    coords = bsCoords bs
+    sumWeightOfTrapped = mapSum (\pc _ -> mapSum (\ _ p2 -> pieceScore p2) (othersInStack pc))
+    pieceScore p1 = pieceWeight (hPieceType p1) * bool 10 1 (hPlayer p1 == p)
+    othersInStack pc = Map.filterWithKey (axialEqNotSame pc) coords
+    axialEqNotSame pc@(_,_,h) pc1@(_,_,h2) _ = axialEq pc pc1 && h /= h2
+    onTopPiece pc@(_,_,h) p1 = hPlayer p1 == p
+                    && h > 0
+                    && topOfTheStack bs pc
 
 piecesFreeToAttck :: GameState -> HivePlayer -> Int
 piecesFreeToAttck gs p = Map.size $ Map.filterWithKey freeToAttack coords
