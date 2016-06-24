@@ -37,16 +37,18 @@ library
                      , diagrams-core
                      , diagrams-contrib
                      , diagrams-canvas
+                     , diagrams-svg
                      , blank-canvas
                      , colour
                      , safe
                      , stm
                      , parallel
-                     , fgl
                      , text
                      , monad-parallel
                      , split
                      , time
+                     , deepseq
+                     , igraph
   default-language:    Haskell2010
 
 executable LambdaHive-exe
@@ -61,10 +63,12 @@ executable LambdaHive-exe
                      , diagrams-core
                      , diagrams-contrib
                      , diagrams-canvas
+                     , diagrams-svg
                      , blank-canvas
-                     , fgl
                      , time
                      , text
+                     , deepseq
+                     , igraph
   default-language:    Haskell2010
 
 test-suite LambdaHive-test

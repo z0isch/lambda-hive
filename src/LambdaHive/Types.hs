@@ -1,33 +1,33 @@
+{-# LANGUAGE DeriveAnyClass        #-}
+{-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
 
 module LambdaHive.Types where
 
 import           AI.Gametree
+import           Control.DeepSeq
 import           Control.Monad
-import           Data.Bimap                          (Bimap)
-import qualified Data.Bimap                          as Bimap
-import           Data.Graph.Inductive.Graph          (delEdges, delNode, empty,
-                                                      inn, insEdges, insNode,
-                                                      nodes, out)
-import           Data.Graph.Inductive.PatriciaTree
-import qualified Data.Graph.Inductive.Query.ArtPoint as Fgl
+import           Data.Bimap      (Bimap)
+import qualified Data.Bimap      as Bimap
+import qualified Data.IGraph     as IG
 import           Data.List
-import           Data.Map.Strict                     (Map)
-import qualified Data.Map.Strict                     as Map
+import           Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Monoid
-import           Data.Set                            (Set)
-import qualified Data.Set                            as Set
-import           Data.Text                           (Text)
-import qualified Data.Text                           as Text
+import           Data.Set        (Set)
+import qualified Data.Set        as Set
+import           Data.Text       (Text)
+import qualified Data.Text       as Text
+import           GHC.Generics    (Generic)
 import           Safe
 
 data HivePlayer = Player1 | Player2
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, NFData)
 
 data PieceType = Ant | Queen | Beetle | Grasshopper | Spider
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic, NFData)
 
 type PieceId = Int
 --Axial coordinates with height (x,y,height) http://www.redblobgames.com/grids/hexagons/
@@ -35,20 +35,23 @@ type PieceCoordinate = (Int,Int,Int)
 type CannonicalId = Text
 
 data HivePiece = HivePiece
-  { hPlayer       :: HivePlayer
-  , hPieceId      :: PieceId
-  , hPieceType    :: PieceType
-  , hCannonicalId :: CannonicalId
+  { hPlayer          :: HivePlayer
+  , hPieceId         :: PieceId
+  , hPieceType       :: PieceType
+  , hCannonicalId    :: CannonicalId
+  , hPieceTypeNumber :: Maybe Int
   }
   deriving (Show, Eq, Ord)
 
-type BoardAdjecency = Gr () ()
+type BoardAdjecency = IG.Graph IG.U Int
 
 data BoardState = BoardState
-  { bsCoords          :: Map PieceCoordinate HivePiece
-  , bsAdjacency       :: BoardAdjecency
-  , bsIdMap           :: Bimap PieceId PieceCoordinate
-  , bsCannonicalIdMap :: Bimap CannonicalId PieceCoordinate
+  { bsCoords             :: !(Map PieceCoordinate HivePiece)
+  , bsAdjacency          :: !BoardAdjecency
+  , bsIdMap              :: !(Bimap PieceId PieceCoordinate)
+  , bsCannonicalIdMap    :: !(Bimap CannonicalId PieceCoordinate)
+  , bsArticulationPoints :: !(Set PieceId)
+  , bsStackHeights       :: !(Map (Int,Int) Int)
   }
   deriving (Show, Eq)
 
@@ -65,7 +68,6 @@ data GameState = GameState
   , gsHand1      :: PlayerHand
   , gsHand2      :: PlayerHand
   , gsStatus     :: GameStatus
-  , gsMoves      :: [(PieceCoordinate,PieceCoordinate)]
   }
   deriving (Show, Eq)
 
@@ -79,19 +81,19 @@ data Neighbor = TopLeftN
               | BottomRightN
               | RightN
               | TopRightN
-    deriving (Show, Eq, Ord)
+    deriving (Show, Eq, Ord, Generic, NFData)
 
 data PieceMove = PieceMove HivePlayer PieceMoveId
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic, NFData)
 
 data PieceMoveId = QueenMove | PieceMoveType PieceType Int
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic, NFData)
 
 data HiveMove = NoOp
               | SlideMove PieceMove PieceMove Neighbor
               | TopMove PieceMove PieceMove
               | FirstMove PieceMove
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic, NFData)
 
 getMoveString :: HiveMove -> Text
 getMoveString NoOp = ""
@@ -177,12 +179,12 @@ allDirections :: [Neighbor]
 allDirections = [TopLeftN,LeftN,BottomLeftN,BottomRightN,RightN,TopRightN]
 
 initGS :: GameState
-initGS = GameState Player1 0 (BoardState Map.empty empty Bimap.empty Bimap.empty) startingHand startingHand InProgress []
+initGS = GameState Player1 0 (BoardState Map.empty IG.emptyGraph Bimap.empty Bimap.empty Set.empty Map.empty) startingHand startingHand InProgress
 
 getPieceMoveIdFromHivePiece :: HivePiece -> PieceMoveId
 getPieceMoveIdFromHivePiece hp
   | pieceType == Queen = QueenMove
-  | otherwise = PieceMoveType pieceType (read [Text.last $ hCannonicalId hp])
+  | otherwise = PieceMoveType pieceType $ fromJust $ hPieceTypeNumber hp
   where pieceType = hPieceType hp
 
 genGameState :: GameState -> [HiveMove] -> Maybe GameState
@@ -252,7 +254,7 @@ validPlacementSpots gs = filter valid possibles
   where bs = gsBoard gs
         pcs = bsCoords bs
         cs = Map.keys pcs
-        possibles = nub $ concatMap (oneAway cs Queen) cs \\ cs
+        possibles = nub $ concatMap (oneAway (bsStackHeights bs) Queen) cs \\ cs
         firstTurn = if gsCurrPlayer gs == Player1
                     then gsTurn gs == 0
                     else gsTurn gs == 1
@@ -279,49 +281,50 @@ validPieceMoves gs c
   | not $ playedBee gs = []
   | not $ topOfTheStack bs c = []
   | not $ oneHiveRuleSatisfied bs c = []
-  | otherwise = pieceTypeMoves (Map.keys pcs) c (hPieceType $ pcs Map.! c )
+  | otherwise = pieceTypeMoves gs c (hPieceType $ pcs Map.! c )
   where bs = gsBoard gs
         pcs = bsCoords bs
 
-pieceTypeMoves :: [PieceCoordinate] -> PieceCoordinate -> PieceType -> [PieceCoordinate]
-pieceTypeMoves pcs c Queen = oneSpaceMove pcs Queen c
-pieceTypeMoves pcs c Ant = multiSpaceMove (const False) pcs c
-pieceTypeMoves pcs c Beetle = oneSpaceMove pcs Beetle c
-pieceTypeMoves pcs c Grasshopper = map (pieceHop pcs c) possibleStarts
-  where possibleStarts =  filter (\d -> stackHeight pcs (getNeighbor c d) >= 1) allDirections
-pieceTypeMoves pcs c Spider = multiSpaceMove (== 3) pcs c
+pieceTypeMoves :: GameState -> PieceCoordinate -> PieceType -> [PieceCoordinate]
+pieceTypeMoves gs c Queen = oneSpaceMove (bsStackHeights $ gsBoard gs) (Map.keys $ bsCoords $ gsBoard gs) Queen c
+pieceTypeMoves gs c Ant = multiSpaceMove (const False) (bsStackHeights $ gsBoard gs) (Map.keys $ bsCoords $ gsBoard gs) c
+pieceTypeMoves gs c Beetle = oneSpaceMove (bsStackHeights $ gsBoard gs) (Map.keys $ bsCoords $ gsBoard gs) Beetle c
+pieceTypeMoves gs c Grasshopper = map (pieceHop gs c) possibleStarts
+  where possibleStarts =  filter (\d -> stackHeight' gs (getNeighbor c d) >= 1) allDirections
+pieceTypeMoves gs c Spider = multiSpaceMove (== 3) (bsStackHeights $ gsBoard gs) (Map.keys $ bsCoords $ gsBoard gs) c
 
-pieceHop :: [PieceCoordinate] -> PieceCoordinate -> Neighbor -> PieceCoordinate
-pieceHop pcs c n
-  | stackHeight pcs c == 0 = c
-  | otherwise = pieceHop pcs (getNeighbor c n) n
+pieceHop :: GameState -> PieceCoordinate -> Neighbor -> PieceCoordinate
+pieceHop gs c n
+  | stackHeight' gs c == 0 = c
+  | otherwise = pieceHop gs (getNeighbor c n) n
 
-oneSpaceMove :: [PieceCoordinate] -> PieceType -> PieceCoordinate -> [PieceCoordinate]
-oneSpaceMove pcs pT c@(pX,pY,pH) = filter (canSlide pcs c) possibleSpaces
+oneSpaceMove :: Map (Int,Int) Int -> [PieceCoordinate] -> PieceType -> PieceCoordinate -> [PieceCoordinate]
+oneSpaceMove hs pcs pT c = filter (canSlide hs c) possibleSpaces
   where possibleSpaces = possibleGroundSpaces ++ possibleOnTopSpaces
         possibleOnTopSpaces = filter (\(_,_,h) -> h > 0) adjacentSquares
         possibleGroundSpaces = (adjacentSquares `intersect` adjacentToNeighbors) \\ pcs
-        adjacentToNeighbors = concatMap (oneAway pcs Queen) neighbors
+        adjacentToNeighbors = concatMap (oneAway hs Queen) neighbors
         neighbors = adjacentSquares `intersect` pcs
-        adjacentSquares = oneAway pcs pT c ++ bottomOfStack
-        bottomOfStack
-          | pH > 0 = [(pX,pY,0)]
-          | otherwise = []
+        adjacentSquares = oneAway hs pT c
 
-multiSpaceMove :: (Int -> Bool) -> [PieceCoordinate] -> PieceCoordinate -> [PieceCoordinate]
-multiSpaceMove f pcs orig = go pcs 0 Set.empty orig
+multiSpaceMove :: (Int -> Bool) -> Map (Int,Int) Int -> [PieceCoordinate] -> PieceCoordinate -> [PieceCoordinate]
+multiSpaceMove f hs pcs orig = go hs pcs 0 Set.empty orig
   where
-    go :: [PieceCoordinate] -> Int -> Set PieceCoordinate -> PieceCoordinate -> [PieceCoordinate]
-    go npcs step visited c
+    go :: Map (Int,Int) Int -> [PieceCoordinate] -> Int -> Set PieceCoordinate -> PieceCoordinate -> [PieceCoordinate]
+    go nhs npcs step visited c@(xc,yc,_)
       | f (step+1) = newSpots
       | null traversed = delete orig $ Set.toList visited
       | otherwise = nub traversed
       where
-            traversed = concatMap (\s -> go (newPcs s) (step+1) newVisited s) newSpots
+            traversed = concatMap (\s -> go (newHs s) (newPcs s) (step+1) newVisited s) newSpots
             newSpots = filter (`Set.notMember` visited)
-                     $ oneSpaceMove npcs Queen c
+                     $ oneSpaceMove nhs npcs Queen c
             newVisited = Set.insert c visited
             newPcs s = s:delete c npcs
+            newHs (x,y,_) = Map.alter alterF (x,y) $ Map.update (\hp -> if oldHeight == 0 then Nothing else Just $ hp - 1) (xc,yc) nhs
+              where
+                alterF = Just . maybe 1 (+ 1)
+                oldHeight = nhs Map.! (xc,yc)
 
 --     >-<
 --  >-< A >-<
@@ -331,8 +334,8 @@ multiSpaceMove f pcs orig = go pcs 0 Set.empty orig
 -- Let's say the beetle is at B and wants to move to A. Take the beetle temporarily off of B.
 -- If the shortest stack of tiles of C and D is taller than the tallest stack of tiles of A and B,
 -- then the beetle can't move to A. In all other scenarios the beetle is free to move from B to A.
-canSlide :: [PieceCoordinate] -> PieceCoordinate -> PieceCoordinate -> Bool
-canSlide pcs c1 c2
+canSlide :: Map (Int,Int) Int -> PieceCoordinate -> PieceCoordinate -> Bool
+canSlide hs c1 c2
   | dir TopLeftN = slideable [LeftN,TopRightN]
   | dir BottomRightN = slideable [RightN,BottomLeftN]
   | dir LeftN = slideable [TopLeftN,BottomLeftN]
@@ -341,25 +344,25 @@ canSlide pcs c1 c2
   | dir BottomLeftN = slideable [LeftN,BottomRightN]
   | otherwise = False
   where dir d = axialEq (getNeighbor c1 d) c2
-        slideable xs = minimum (map (stackHeight pcs . getNeighbor c1) xs) <= maxStackHeight
-        maxStackHeight = maximum [stackHeight pcs c2, stackHeight pcs c1 - 1]
+        slideable xs = minimum (map (stackHeight hs . getNeighbor c1) xs) <= maxStackHeight
+        maxStackHeight = maximum [stackHeight hs c2, stackHeight hs c1 - 1]
 
 axialEq :: PieceCoordinate -> PieceCoordinate -> Bool
 axialEq (x,y,_) (x2,y2,_) = x == x2 && y==y2
 
-stackHeight :: [PieceCoordinate] -> PieceCoordinate -> Int
-stackHeight pcs c = genericLength $ filter (axialEq c) pcs
+stackHeight :: Map (Int,Int) Int -> PieceCoordinate -> Int
+stackHeight hs (x,y,_)
+  | Map.member (x,y) hs = hs Map.! (x,y)
+  | otherwise = 0
 
 stackHeight' :: GameState -> PieceCoordinate -> Int
-stackHeight' gs = stackHeight pcs
-  where pcs = map fst $ Map.toList (bsCoords $ gsBoard gs)
+stackHeight' gs = stackHeight (bsStackHeights $ gsBoard gs)
 
-oneAway :: [PieceCoordinate] -> PieceType -> PieceCoordinate -> [PieceCoordinate]
-oneAway pcs Beetle (x,y,_)  = groundLevel ++ beetleLevel
-  where groundLevel = oneAway pcs Queen (x,y,0)
-        beetleLevel = map (\((x1,y1,_),h) -> (x1,y1,h))
-                      $ filter (\(_,h) -> h >= 1)
-                      $ map (\c -> (c,stackHeight pcs c)) groundLevel
+oneAway :: Map (Int,Int) Int -> PieceType -> PieceCoordinate -> [PieceCoordinate]
+oneAway hs Beetle (x,y,_)  = groundLevel ++ beetleLevel
+  where groundLevel = oneAway hs Queen (x,y,0)
+        beetleLevel = map (\(x2,y2,_) -> (x2,y2,hs Map.! (x2,y2)))
+                      $ filter (\(x2,y2,_) -> Map.member (x2,y2) hs) groundLevel
 oneAway _ _ c = map (getNeighbor c) allDirections
 
 getNeighbor :: PieceCoordinate -> Neighbor -> PieceCoordinate
@@ -379,10 +382,7 @@ oppositeNeighbor RightN = LeftN
 oppositeNeighbor TopRightN = BottomLeftN
 
 topOfTheStack :: BoardState -> PieceCoordinate -> Bool
-topOfTheStack (BoardState pcs _ _ _) (x,y,h) = (== h) $ maximum
-                                  $ map (\(_,_,h1) -> h1)
-                                  $ filter (\(x1,y1,_) -> x==x1 && y==y1)
-                                  $ Map.keys pcs
+topOfTheStack (BoardState _ _ _ _ _ hs) c@(_,_,h) = stackHeight hs c == (h+1)
 
 adjacentCoords :: PieceCoordinate -> PieceCoordinate -> Bool
 adjacentCoords c1 c2
@@ -390,32 +390,26 @@ adjacentCoords c1 c2
   | otherwise = any (\d -> axialEq (getNeighbor c1 d) c2) allDirections
 
 oneHiveRuleSatisfied :: BoardState -> PieceCoordinate -> Bool
-oneHiveRuleSatisfied (BoardState pcs ba _ _) c = pieceId `notElem` Fgl.ap ba
-  where pieceId = hPieceId $ pcs Map.! c
-
-removePiece :: BoardState -> PieceCoordinate -> BoardState
-removePiece (BoardState pcs ba ids cIds) c = BoardState newMap newGraph newIds newCIds
-  where
-    newMap = Map.delete c pcs
-    removedId = hPieceId coordRemoved
-    coordRemoved= pcs Map.! c
-    newIds = Bimap.delete removedId ids
-    newCIds = Bimap.delete (hCannonicalId coordRemoved) cIds
-    newGraph = delEdges deletedEdges $ delNode removedId ba
-    deletedEdges = map (\(a,b,_) -> (a,b)) $ out ba removedId ++ inn ba removedId
+oneHiveRuleSatisfied (BoardState _ _ idMap _ aps _) c = Set.notMember i aps
+  where i = (Bimap.!>) idMap c
 
 unsafeSkipTurn :: GameState -> GameState
-unsafeSkipTurn gs = GameState (nextPlayer gs) (gsTurn gs + 1) (gsBoard gs) (gsHand1 gs) (gsHand2 gs) (gsStatus gs) (gsMoves gs)
+unsafeSkipTurn gs = GameState (nextPlayer gs) (gsTurn gs + 1) (gsBoard gs) (gsHand1 gs) (gsHand2 gs) (gsStatus gs)
+
+affectEdges :: (IG.Edge a b -> IG.Graph a b -> IG.Graph a b)
+  -> [IG.Edge a b]
+  -> IG.Graph a b
+  -> IG.Graph a b
+affectEdges f es g = foldl' (flip f) g es
 
 unsafeMovePiece :: GameState -> PieceCoordinate -> PieceCoordinate -> GameState
-unsafeMovePiece gs c1 c2 = GameState
+unsafeMovePiece gs c1@(x1,y1,h1) c2@(x2,y2,_) = GameState
                          { gsCurrPlayer = nextPlayer gs
                          , gsTurn = gsTurn gs + 1
                          , gsBoard = newBoardState
                          , gsHand1 = gsHand1 gs
                          , gsHand2 = gsHand2 gs
                          , gsStatus = newStatus
-                         , gsMoves = gsMoves gs ++ [(c1,c2)]
                          }
   where
         pcs = bsCoords bs
@@ -424,51 +418,50 @@ unsafeMovePiece gs c1 c2 = GameState
         piece = pcs Map.! c1
         pieceId = hPieceId piece
         cPieceId = hCannonicalId piece
+        stackHeights = bsStackHeights bs
         newMap = Map.insert c2 piece $ Map.delete c1 pcs
-        t = containsAllVertices (delEdges deletedEdges ba) newEdges
-        deletedEdges = map (\(a,b,_) -> (a,b)) $ out ba pieceId ++ inn ba pieceId
-        newEdges = concatMap ((\i -> [(i,pieceId,()),(pieceId,i,())]) . hPieceId)
-                 $ Map.elems adjacents
+        newEdges =  map (IG.toEdge pieceId . hPieceId) $ Map.elems adjacents
         adjacents = Map.filterWithKey (\k hp -> hPieceId hp /= pieceId && adjacentCoords c2 k) newMap
-        newGraph = if t then insEdges newEdges $ delEdges deletedEdges ba else undefined
-        newBoardState = BoardState newMap newGraph newIds newCIds
+        a = IG.edges $ affectEdges IG.insertEdge newEdges $ IG.deleteNode pieceId ba
+        newGraph = affectEdges IG.insertEdge a IG.emptyGraph
+        newBoardState = BoardState newMap newGraph newIds newCIds newAps newHeights
         newStatus = gameStatus newBoardState
         newIds = Bimap.adjust (const c2) pieceId $ bsIdMap bs
         newCIds = Bimap.adjust (const c2) cPieceId $ bsCannonicalIdMap bs
-
-containsAllVertices :: Gr () () -> [(Int,Int,())] -> Bool
-containsAllVertices gr es = all (`elem` nodes gr) ns
-  where ns = nub $ map (\(x,_,_) -> x) es ++ map (\(_,y,_) -> y) es
+        newAps = Set.fromList $ IG.articulationPoints newGraph
+        newHeights = Map.alter (Just . maybe 1 (+ 1)) (x2,y2)
+                      $ Map.update (\hp -> if h1 == 0 then Nothing else Just $ hp - 1) (x1,y1) stackHeights
 
 unsafePlacePiece :: GameState -> PieceCoordinate -> PieceType -> GameState
-unsafePlacePiece gs c t = GameState
+unsafePlacePiece gs c@(x,y,_) t = GameState
                         { gsCurrPlayer = nextPlayer gs
                         , gsTurn = gsTurn gs + 1
                         , gsBoard = newBoardState
                         , gsHand1 = hand1
                         , gsHand2 = hand2
                         , gsStatus = newStatus
-                        , gsMoves = gsMoves gs ++ [((0,0,-1),c)]
                         }
   where
     bs = gsBoard gs
     pcs = bsCoords bs
     ba = bsAdjacency bs
-    bothWays i = [(i,newPieceId,()),(newPieceId,i,())]
-    test = containsAllVertices (insNode (Map.size newMap - 1, ()) ba) newEdges
-    newEdges = concatMap (bothWays . hPieceId) (Map.elems adjacents)
-    newGraph = if test then insEdges newEdges $ insNode (Map.size newMap - 1, ()) ba else undefined
+    stackHeights = bsStackHeights bs
+    newEdges = map (IG.toEdge newPieceId . hPieceId) (Map.elems adjacents)
+    newGraph = affectEdges IG.insertEdge newEdges ba
+    pieceTypeNum = if t== Queen then Nothing else Just (numOfPieceType + 1)
     connonicalName = playerText (gsCurrPlayer gs)
                     <> pieceText t
                     <> if t== Queen then "" else Text.pack (show (numOfPieceType + 1))
     numOfPieceType = Map.size $ Map.filter (\p-> hPieceType p == t && hPlayer p == gsCurrPlayer gs) pcs
-    newMap = Map.insert c (HivePiece (gsCurrPlayer gs) newPieceId t connonicalName) pcs
+    newMap = Map.insert c (HivePiece (gsCurrPlayer gs) newPieceId t connonicalName pieceTypeNum) pcs
     newPieceId = Map.size pcs
     adjacents = Map.filterWithKey (\k hp -> hPieceId hp /= newPieceId && adjacentCoords c k) newMap
     nextHand = delete t $ currPlayersHand gs
     hand1 = if gsCurrPlayer gs == Player1 then nextHand else gsHand1 gs
     hand2 = if gsCurrPlayer gs == Player2 then nextHand else gsHand2 gs
-    newBoardState = BoardState newMap newGraph newIds newCIds
+    newBoardState = BoardState newMap newGraph newIds newCIds newAps newHeights
     newStatus = gameStatus newBoardState
     newIds = Bimap.insert newPieceId c $ bsIdMap bs
     newCIds = Bimap.insert connonicalName c $ bsCannonicalIdMap bs
+    newAps = Set.fromList $ IG.articulationPoints newGraph
+    newHeights = Map.alter (Just . maybe 1 (+ 1)) (x,y) stackHeights

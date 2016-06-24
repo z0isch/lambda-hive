@@ -3,14 +3,14 @@
 module LambdaHive.AI where
 
 import           AI.Minimax
-import qualified Data.Bimap                          as Bimap
+import qualified Data.Bimap       as Bimap
 import           Data.Bool
-import qualified Data.Graph.Inductive.Graph          as Fgl
-import           Data.Graph.Inductive.Query.ArtPoint
+import qualified Data.IGraph      as IG
 import           Data.List
-import qualified Data.Map.Strict                     as Map
+import qualified Data.Map.Strict  as Map
 import           Data.Maybe
 import           Data.Monoid
+import qualified Data.Set         as Set
 import           Data.Time.Clock
 import           LambdaHive.Types
 import           System.Random
@@ -71,13 +71,14 @@ score1 sw gs = case prog of
     p = gsCurrPlayer gs
     prog = gsStatus gs
     bs =  gsBoard gs
+    idMap = bsIdMap bs
+    coords = bsCoords bs
     oposingPlayer
       | p == Player1 = Player2
       | otherwise = Player1
-    adjacency = bsAdjacency bs
     queen pl = (Bimap.!>) (bsIdMap bs) <$> maybeQueen pl
     maybeQueen pl = Bimap.lookup (playerText pl <> "Q") $ bsCannonicalIdMap bs
-    artPoints = map (getHivePieceFromId gs) $ ap adjacency
+    artPoints = map (\pId -> coords Map.! (idMap Bimap.! pId)) $ Set.toList $ bsArticulationPoints bs
     playerArtPoints = filter (\piece -> hPlayer piece == p) artPoints
     oposingArtPoints = filter (\piece -> hPlayer piece /= p) artPoints
     opposingQueenBreathingRoom = breathingRoom gs <$> queen oposingPlayer
@@ -119,7 +120,7 @@ piecesFreeToAttck gs p = Map.size $ Map.filterWithKey freeToAttack coords
     queenExists = Bimap.member queenText connMap
     queenId =  idMap Bimap.!> (connMap Bimap.! queenText)
     adjacentToQueen = if queenExists
-                      then Fgl.neighbors adjacency queenId
+                      then IG.neighbours queenId adjacency
                       else []
     oposingPlayer
       | p == Player1 = Player2
@@ -129,12 +130,11 @@ piecesFreeToAttck gs p = Map.size $ Map.filterWithKey freeToAttack coords
                        && not (null $ validPieceMoves gs pc)
 
 breathingRoom :: GameState -> PieceId -> Int
-breathingRoom gs = (-) 6
-                  . genericLength
-                  . nub
-                  . filter (\(_,_,h) -> h == 0)
-                  . map ((Bimap.!) (bsIdMap bs))
-                  . Fgl.neighbors adjacency
+breathingRoom gs pId = 6 - Set.size intersect
   where
     bs = gsBoard gs
     adjacency = bsAdjacency bs
+    heights = Map.keysSet $ bsStackHeights bs
+    pc = bsIdMap bs Bimap.! pId
+    intersect = Set.intersection neighbors heights
+    neighbors = Set.fromList $ map ((\(x,y,_) -> (x,y)) . getNeighbor pc) allDirections
