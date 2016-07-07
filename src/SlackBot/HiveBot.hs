@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module SlackBot.HiveBot where
 
 import           Control.Lens
@@ -40,8 +41,8 @@ sw = ScoreWeights
 botAI :: HiveAI
 botAI = Minimax sw 3 score1
 
-postGameImage :: GameStateKey -> ChannelId -> Slack SlackBotState ()
-postGameImage gs (Id cid) = do
+postGameImage :: GameStateKey -> Slack SlackBotState ()
+postGameImage gs@(cid,_) = do
   s <- get
   uid <- liftIO nextRandom
   let filename = toString uid ++ ".png"
@@ -55,7 +56,7 @@ gameStart Player1 gs@(cid,submitter)= do
     (mv,ngs) <- liftIO $ aiMove botAI initGS
     userState.gameStates %= Map.alter (const $ Just (WaitingForPlayerToMove, ngs)) gs
     sendMessage (Id cid) $ "<@" <> submitter <> ">: " <> getMoveString mv
-    postGameImage gs (Id cid)
+    postGameImage gs
 gameStart Player2 gs@(cid,submitter) = do
   userState.gameStates %= Map.alter (const $ Just (WaitingForPlayerToMove, initGS)) gs
   sendMessage (Id cid) $ "<@" <> submitter <> ">: Your turn."
@@ -86,7 +87,7 @@ doSlackBotCommand gs@(cid,submitter) (MakeMove hm) = do
     (mv,aigs) <- liftIO $ aiMove botAI ngs
     userState.gameStates %= Map.update (const $ Just (WaitingForPlayerToMove, aigs)) gs
     sendMessage (Id cid) $ "<@" <> submitter <> ">: " <> getMoveString mv
-    postGameImage gs (Id cid)
+    postGameImage gs
 doSlackBotCommand gs@(cid,submitter) EndGame =  do
   s <- get
   if Map.notMember gs (s^.userState.gameStates)
@@ -98,7 +99,7 @@ doSlackBotCommand gs@(cid,_) ShowGame =  do
   s <- get
   if Map.notMember gs (s^.userState.gameStates)
   then sendMessage (Id cid) "You have to start a game first!"
-  else postGameImage gs (Id cid)
+  else postGameImage gs
 
 hiveBot :: SlackBot SlackBotState
 hiveBot (Message cid _ msg _ (Just (SChannelJoin _)) _) = do

@@ -90,6 +90,7 @@ executable SlackBot-exe
                      , regex-posix
                      , ansi-wl-pprint
                      , containers
+                     , HsSyck
   default-language:    Haskell2010
 
 executable LambdaHive-exe
