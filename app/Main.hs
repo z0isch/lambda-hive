@@ -9,7 +9,7 @@ import           Diagrams.Backend.Canvas
 import           Diagrams.Prelude
 import qualified Graphics.Blank          as B
 import           LambdaHive.AI
-import           LambdaHive.Canvas
+import           LambdaHive.Diagram
 import           LambdaHive.Parser.Move
 import           LambdaHive.Types
 import           System.IO

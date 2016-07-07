@@ -17,7 +17,7 @@ library
   ghc-options:         -W -threaded -rtsopts -with-rtsopts=-N4 -O2
   exposed-modules:     Data.SGF.Hive
                      , LambdaHive.Types
-                     , LambdaHive.Canvas
+                     , LambdaHive.Diagram
                      , LambdaHive.Parser.Move
                      , LambdaHive.AI
                      , LambdaHive.Genetic

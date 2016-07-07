@@ -14,7 +14,7 @@ import           Data.UUID.V4
 import           Diagrams.Backend.Cairo
 import qualified Diagrams.Prelude       as D
 import           LambdaHive.AI
-import           LambdaHive.Canvas
+import           LambdaHive.Diagram
 import           LambdaHive.Types
 import           SlackBot.Parser
 import           SlackBot.Types
