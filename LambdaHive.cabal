@@ -10,12 +10,11 @@ maintainer:          example@example.com
 copyright:           2016 Author name here
 category:            Web
 build-type:          Simple
--- extra-source-files:
 cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  ghc-options:         -Wall -O2
+  ghc-options:         -W -threaded -rtsopts -with-rtsopts=-N4 -O2
   exposed-modules:     Data.SGF.Hive
                      , LambdaHive.Types
                      , LambdaHive.Canvas
@@ -25,6 +24,10 @@ library
                      , AI.Gametree
                      , AI.Minimax
                      , Data.List.Zipper
+                     , SlackBot.Types
+                     , SlackBot.WebAPI
+                     , SlackBot.Parser
+                     , SlackBot.HiveBot
   build-depends:       base >= 4.7 && < 5
                      , trifecta
                      , containers
@@ -38,6 +41,7 @@ library
                      , diagrams-contrib
                      , diagrams-canvas
                      , diagrams-svg
+                     , diagrams-cairo
                      , blank-canvas
                      , colour
                      , safe
@@ -49,12 +53,49 @@ library
                      , time
                      , deepseq
                      , igraph
+                     , lens
+                     , slack-api
+                     , regex-posix
+                     , containers
+                     , mtl
+                     , aeson
+                     , bytestring
+                     , wreq
+                     , uuid
+                     , directory
+  default-language:    Haskell2010
+
+executable SlackBot-exe
+  hs-source-dirs:      app
+  main-is:             SlackBot.hs
+  ghc-options:         -W -threaded -rtsopts -with-rtsopts=-N4 -O2
+  build-depends:       base
+                     , LambdaHive
+                     , trifecta
+                     , diagrams
+                     , diagrams-lib
+                     , diagrams-core
+                     , diagrams-contrib
+                     , diagrams-canvas
+                     , time
+                     , text
+                     , slack-api
+                     , transformers
+                     , lens
+                     , mtl
+                     , aeson
+                     , websockets
+                     , wreq
+                     , bytestring
+                     , regex-posix
+                     , ansi-wl-pprint
+                     , containers
   default-language:    Haskell2010
 
 executable LambdaHive-exe
   hs-source-dirs:      app
   main-is:             Main.hs
-  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N -O2
+  ghc-options:         -W -threaded -rtsopts -with-rtsopts=-N4 -O2
   build-depends:       base
                      , LambdaHive
                      , trifecta

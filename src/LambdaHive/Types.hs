@@ -8,19 +8,20 @@ module LambdaHive.Types where
 import           AI.Gametree
 import           Control.DeepSeq
 import           Control.Monad
-import           Data.Bimap      (Bimap)
-import qualified Data.Bimap      as Bimap
-import qualified Data.IGraph     as IG
+import           Control.Parallel.Strategies
+import           Data.Bimap                  (Bimap)
+import qualified Data.Bimap                  as Bimap
+import qualified Data.IGraph                 as IG
 import           Data.List
-import           Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
+import           Data.Map.Strict             (Map)
+import qualified Data.Map.Strict             as Map
 import           Data.Maybe
 import           Data.Monoid
-import           Data.Set        (Set)
-import qualified Data.Set        as Set
-import           Data.Text       (Text)
-import qualified Data.Text       as Text
-import           GHC.Generics    (Generic)
+import           Data.Set                    (Set)
+import qualified Data.Set                    as Set
+import           Data.Text                   (Text)
+import qualified Data.Text                   as Text
+import           GHC.Generics                (Generic)
 import           Safe
 
 data HivePlayer = Player1 | Player2
@@ -228,7 +229,7 @@ validPlayerMoves gs
           allSpots = concat $ permutations (validPlacementSpots gs)
           allTypes = concat $ permutations (validPlacementTypes gs)
           playersPieces = map fst $ Map.toList $ Map.filter (\p -> hPlayer p == gsCurrPlayer gs) (bsCoords $ gsBoard gs)
-          allValidPieceMoves = concatMap (\pc -> map (genPieceMoves pc) (validPieceMoves gs pc)) playersPieces
+          allValidPieceMoves = concatMap (\pc -> map (genPieceMoves pc) (validPieceMoves gs pc)) playersPieces `using` parList rseq
           allValidPlacements = zipWith genPiecePlacement allSpots allTypes
           genPieceMoves pc1 pc2@(x2,y2,h2)
             | h2 > 0 = TopMove (PieceMove (gsCurrPlayer gs) movePiece) (PieceMove (hPlayer onBottomPiece) (getPieceMoveIdFromHivePiece onBottomPiece))
@@ -299,12 +300,13 @@ pieceHop gs c n
   | otherwise = pieceHop gs (getNeighbor c n) n
 
 oneSpaceMove :: Map (Int,Int) Int -> [PieceCoordinate] -> PieceType -> PieceCoordinate -> [PieceCoordinate]
-oneSpaceMove hs pcs pT c = filter (canSlide hs c) possibleSpaces
+oneSpaceMove hs _ pT c = filter (canSlide hs c) possibleSpaces
   where possibleSpaces = possibleGroundSpaces ++ possibleOnTopSpaces
         possibleOnTopSpaces = filter (\(_,_,h) -> h > 0) adjacentSquares
-        possibleGroundSpaces = (adjacentSquares `intersect` adjacentToNeighbors) \\ pcs
-        adjacentToNeighbors = concatMap (oneAway hs Queen) neighbors
-        neighbors = adjacentSquares `intersect` pcs
+        possibleGroundSpaces = adjacentSquares `intersect` adjacentToNeighbors
+        adjacentToNeighbors = filter (\(x,y,_) -> Map.notMember (x,y) hs)
+                              $ concatMap (oneAway hs Queen) neighbors
+        neighbors = filter (\(x,y,_) -> Map.member (x,y) hs) adjacentSquares
         adjacentSquares = oneAway hs pT c
 
 multiSpaceMove :: (Int -> Bool) -> Map (Int,Int) Int -> [PieceCoordinate] -> PieceCoordinate -> [PieceCoordinate]
@@ -321,7 +323,8 @@ multiSpaceMove f hs pcs orig = go hs pcs 0 Set.empty orig
                      $ oneSpaceMove nhs npcs Queen c
             newVisited = Set.insert c visited
             newPcs s = s:delete c npcs
-            newHs (x,y,_) = Map.alter alterF (x,y) $ Map.update (\hp -> if oldHeight == 0 then Nothing else Just $ hp - 1) (xc,yc) nhs
+            newHs (x,y,_) = Map.alter alterF (x,y)
+                          $ Map.update (\hp -> if oldHeight == 1 then Nothing else Just $ hp - 1) (xc,yc) nhs
               where
                 alterF = Just . maybe 1 (+ 1)
                 oldHeight = nhs Map.! (xc,yc)

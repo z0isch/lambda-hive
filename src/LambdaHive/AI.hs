@@ -1,17 +1,20 @@
+{-# LANGUAGE DeriveAnyClass    #-}
+{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module LambdaHive.AI where
 
 import           AI.Minimax
+import           Control.DeepSeq
 import qualified Data.Bimap       as Bimap
 import           Data.Bool
 import qualified Data.IGraph      as IG
-import           Data.List
 import qualified Data.Map.Strict  as Map
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Set         as Set
 import           Data.Time.Clock
+import           GHC.Generics     (Generic)
 import           LambdaHive.Types
 import           System.Random
 
@@ -53,7 +56,7 @@ data ScoreWeights = ScoreWeights
   , swPlayerPiecesOnTop:: Int
   , swOppPiecesOnTop    :: Int
   }
-  deriving (Show, Eq, Read)
+  deriving (Show, Eq, Read, Generic, NFData)
 
 score1 :: ScoreWeights -> GameState -> Value
 score1 sw gs = case prog of
@@ -130,11 +133,10 @@ piecesFreeToAttck gs p = Map.size $ Map.filterWithKey freeToAttack coords
                        && not (null $ validPieceMoves gs pc)
 
 breathingRoom :: GameState -> PieceId -> Int
-breathingRoom gs pId = 6 - Set.size intersect
+breathingRoom gs pId = 6 - Set.size intersections
   where
     bs = gsBoard gs
-    adjacency = bsAdjacency bs
     heights = Map.keysSet $ bsStackHeights bs
     pc = bsIdMap bs Bimap.! pId
-    intersect = Set.intersection neighbors heights
+    intersections = Set.intersection neighbors heights
     neighbors = Set.fromList $ map ((\(x,y,_) -> (x,y)) . getNeighbor pc) allDirections

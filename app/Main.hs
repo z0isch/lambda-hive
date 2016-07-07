@@ -1,8 +1,6 @@
 module Main where
 
 import           Control.Concurrent
-import           Control.Monad
-import qualified Data.IGraph             as IG
 import           Data.List.Zipper
 import           Data.Maybe
 import qualified Data.Text               as Text
@@ -12,7 +10,6 @@ import           Diagrams.Prelude
 import qualified Graphics.Blank          as B
 import           LambdaHive.AI
 import           LambdaHive.Canvas
-import           LambdaHive.Genetic
 import           LambdaHive.Parser.Move
 import           LambdaHive.Types
 import           System.IO
@@ -31,27 +28,29 @@ stopTestServer = killThread
 sendToTestServer :: MVar (B.Canvas ()) -> GameState -> IO ()
 sendToTestServer canvas = putMVar canvas . renderHiveCanvas . gameStateDiagram
 
+sw :: ScoreWeights
+sw = ScoreWeights
+    { swPlayerArtPoints = 50
+    , swOppArtPoints = 50
+    , swOppQBreathing = 100
+    , swPlayerQBreathing = 33
+    , swPiecesToWin = 85
+    , swPlayerPiecesOnTop = 85
+    , swOppPiecesOnTop = 25
+    }
+
 main :: IO ()
 main = do
   --game <- getGameFromFile "game2.hive"
   canvas <- newMVar $ renderHiveCanvas $ gameStateDiagram initGS
   canvasThread <- forkIO $ B.blankCanvas 3000 $ canvasLoop canvas
-  let sw = ScoreWeights
-          { swPlayerArtPoints = 50
-          , swOppArtPoints = 50
-          , swOppQBreathing = 100
-          , swPlayerQBreathing = 33
-          , swPiecesToWin = 85
-          , swPlayerPiecesOnTop = 85
-          , swOppPiecesOnTop = 25
-          }
   --replayGame sw (fromList (tail game)) canvas canvasThread
   t <- getCurrentTime
   gameLog <- openFile (show (utctDayTime t) ++ ".hive") WriteMode
-  aiBattle gameLog initGS canvas canvasThread
-    (Minimax sw 5 score1)
-    (Minimax sw 4 score1)
-  --playerVsAI gameLog initGS False canvas canvasThread (Minimax sw 5 score1)
+  -- aiBattle gameLog initGS canvas canvasThread
+  --   (Minimax sw 4 score1)
+  --   (Minimax sw 3 score1)
+  playerVsAI gameLog initGS False canvas canvasThread (Minimax sw 4 score1)
 
 canvasLoop :: MVar (B.Canvas ()) -> B.DeviceContext -> IO ()
 canvasLoop canvas context = do
@@ -83,6 +82,7 @@ aiBattle gH gs canvas canvasThread ai1 ai2 =
       (mv1,newGs) <- aiMove ai1 gs
       saveMove mv1
       _ <- sendToCanvas $ gameStateDiagram newGs
+      threadDelay 300000
       case gsStatus newGs of
         Win p -> showGameOver $ show p ++ " wins"
         Draw -> showGameOver "Draw"
@@ -90,6 +90,7 @@ aiBattle gH gs canvas canvasThread ai1 ai2 =
           (mv2,newGs2) <- aiMove ai2 newGs
           saveMove mv2
           _ <- sendToCanvas $ gameStateDiagram newGs2
+          threadDelay 300000
           continueWith newGs2
   where
     saveMove mv = do

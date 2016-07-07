@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns               #-}
+{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 
@@ -7,17 +8,27 @@ module AI.Minimax( Value(..)
    , alphaBeta
    , negascout
    , jamboree
+   , alternate
    ) where
 
 import           AI.Gametree
+import           Control.DeepSeq
 import           Control.Parallel.Strategies
 import           Data.Function               (on)
-import           Data.List                   (minimumBy)
-
+import           Data.List                   (minimumBy, sortOn)
+import           GHC.Generics                (Generic)
 -- | a type for game position valuations;
 -- simply a wrapper newtype over integers
 newtype Value = Value Int deriving (Eq, Ord, Enum, Bounded,
-                                    Num, Real, Integral, Show, Read)
+                                    Num, Real, Integral, Show, Read, Generic, NFData)
+
+alternate :: Transitions s l => (Value -> Value -> Int -> s -> Value) -> Int -> s -> (l, Value)
+alternate abSearch depth s = last $ sortOn snd scores
+  where
+    scores = zipWith (\(s1,_) v -> (s1,v)) possibles scoresOnly
+    scoresOnly = map search possibles `using` parList rseq
+    search (_,l1) = -abSearch (-maxBound) (-(minBound+1)) (depth-1) l1
+    possibles = transitions s
 
 -- compute best move using some search function
 -- undefined for terminal positions

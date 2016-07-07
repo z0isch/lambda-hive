@@ -53,6 +53,7 @@ end   (Zip ls rs) = Zip (reverse rs ++ ls) []
 -- @cursor z@.
 cursor :: Zipper a -> a
 cursor (Zip _ (a:_)) = a
+cursor (Zip _ []) = error "cursor out of bounds"
 
 -- | @safeCursor@ is like @cursor@ but total.
 safeCursor :: Zipper a -> Maybe a
