@@ -39,7 +39,8 @@ sw = ScoreWeights
     , swOppPiecesOnTop = 25
     }
 botAI :: HiveAI
-botAI = Minimax sw 3 score1
+--botAI = Minimax sw 3 score1
+botAI = RandomAI
 
 postGameImage :: GameStateKey -> Slack SlackBotState ()
 postGameImage gs@(cid,_) = do
@@ -84,10 +85,21 @@ doSlackBotCommand gs@(cid,submitter) (MakeMove hm) = do
   else do
     let currGs = snd $ fromJust $ s^.userState.gameStates.at gs
         ngs = fromJust $ makeMove currGs hm
-    (mv,aigs) <- liftIO $ aiMove botAI ngs
-    userState.gameStates %= Map.update (const $ Just (WaitingForPlayerToMove, aigs)) gs
-    sendMessage (Id cid) $ "<@" <> submitter <> ">: " <> getMoveString mv
+    userState.gameStates %= Map.update (const $ Just (Thinking, ngs)) gs
     postGameImage gs
+    gameOverCheck ngs $ do
+      (mv,aigs) <- liftIO $ aiMove botAI ngs
+      userState.gameStates %= Map.update (const $ Just (WaitingForPlayerToMove, aigs)) gs
+      sendMessage (Id cid) $ "<@" <> submitter <> ">: " <> getMoveString mv
+      postGameImage gs
+      gameOverCheck aigs $ return ()
+    where
+      gameOverCheck gamestate f
+        | gameOver gamestate = do
+          sendMessage (Id cid) $ "<@" <> submitter <> ">: " <> T.pack (show (gameStatus $ gsBoard gamestate))
+          userState.gameStates %= Map.delete gs
+          sendMessage (Id cid) $ "<@" <> submitter <> ">: Game over!"
+        | otherwise   = f
 doSlackBotCommand gs@(cid,submitter) EndGame =  do
   s <- get
   if Map.notMember gs (s^.userState.gameStates)
