@@ -42,10 +42,12 @@ aiMove ai gs
       go (Minimax sw d s) = do
         t <- getCurrentTime
         let (mv, score) = searchMove (alphaBeta (s sw)) d gs
+        let newState = fromJust $ makeMove gs mv
+
         print score
         t2 <- getCurrentTime
         print $ diffUTCTime t2 t
-        return (mv, fromJust $ makeMove gs mv)
+        return (mv, newState)
 
 data ScoreWeights = ScoreWeights
   { swPlayerArtPoints   :: Int

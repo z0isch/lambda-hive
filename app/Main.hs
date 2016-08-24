@@ -80,7 +80,7 @@ aiBattle gH gs canvas canvasThread ai1 ai2 =
     Draw -> showGameOver "Draw"
     InProgress -> do
       (mv1,newGs) <- aiMove ai1 gs
-      saveMove mv1
+      saveMove newGs mv1
       _ <- sendToCanvas $ gameStateDiagram newGs
       threadDelay 300000
       case gsStatus newGs of
@@ -88,13 +88,13 @@ aiBattle gH gs canvas canvasThread ai1 ai2 =
         Draw -> showGameOver "Draw"
         InProgress -> do
           (mv2,newGs2) <- aiMove ai2 newGs
-          saveMove mv2
+          saveMove newGs2 mv2
           _ <- sendToCanvas $ gameStateDiagram newGs2
           threadDelay 300000
           continueWith newGs2
   where
-    saveMove mv = do
-      hPutStrLn gH $ Text.unpack $ getMoveString mv
+    saveMove ngs mv = do
+      hPutStrLn gH $ Text.unpack $ getLegalMoveString ngs mv
       hFlush gH
     continueWith g = aiBattle gH g canvas canvasThread ai1 ai2
     sendToCanvas = putMVar canvas . renderHiveCanvas
@@ -120,9 +120,9 @@ playerVsAI gH gs aiFirst canvas canvasThread ai =
     aiTurn iGs = do
       (mv,newGs) <- aiMove ai iGs
       _ <- sendToCanvas $ gameStateDiagram newGs
-      _ <- saveMove mv
+      _ <- saveMove newGs mv
       threadDelay 300000
-      putStrLn $ Text.unpack $ getMoveString mv
+      putStrLn $ Text.unpack $ getLegalMoveString newGs mv
       case gsStatus newGs of
         Win p -> showGameOver $ show p ++ " wins"
         Draw -> showGameOver "Draw"
@@ -147,7 +147,7 @@ playerVsAI gH gs aiFirst canvas canvasThread ai =
                   case mGs of
                     Just ngs -> do
                       _ <- sendToCanvas $ gameStateDiagram ngs
-                      _ <- saveMove sm
+                      _ <- saveMove ngs sm
                       threadDelay 300000
                       case gsStatus ngs of
                         Win p -> showGameOver $ show p ++ " wins"
@@ -160,8 +160,8 @@ playerVsAI gH gs aiFirst canvas canvasThread ai =
                     putStrLn "Enter a valid move or piece"
                     playerTurn iGs
     sendToCanvas = putMVar canvas . renderHiveCanvas
-    saveMove mv = do
-      hPutStrLn gH $ Text.unpack $ getMoveString mv
+    saveMove ngs mv = do
+      hPutStrLn gH $ Text.unpack $ getLegalMoveString ngs mv
       hFlush gH
     showGameOver s = do
       putStrLn s

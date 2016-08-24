@@ -39,8 +39,7 @@ sw = ScoreWeights
     , swOppPiecesOnTop = 25
     }
 botAI :: HiveAI
---botAI = Minimax sw 3 score1
-botAI = RandomAI
+botAI = Minimax sw 4 score1
 
 postGameImage :: GameStateKey -> Slack SlackBotState ()
 postGameImage gs@(cid,_) = do
@@ -56,8 +55,9 @@ gameStart :: HivePlayer -> GameStateKey -> Slack SlackBotState ()
 gameStart Player1 gs@(cid,submitter)= do
     (mv,ngs) <- liftIO $ aiMove botAI initGS
     userState.gameStates %= Map.alter (const $ Just (WaitingForPlayerToMove, ngs)) gs
-    sendMessage (Id cid) $ "<@" <> submitter <> ">: " <> getMoveString mv
     postGameImage gs
+    sendMessage (Id cid) $ "<@" <> submitter <> ">: " <> getLegalMoveString ngs mv
+
 gameStart Player2 gs@(cid,submitter) = do
   userState.gameStates %= Map.alter (const $ Just (WaitingForPlayerToMove, initGS)) gs
   sendMessage (Id cid) $ "<@" <> submitter <> ">: Your turn."
@@ -90,8 +90,8 @@ doSlackBotCommand gs@(cid,submitter) (MakeMove hm) = do
     gameOverCheck ngs $ do
       (mv,aigs) <- liftIO $ aiMove botAI ngs
       userState.gameStates %= Map.update (const $ Just (WaitingForPlayerToMove, aigs)) gs
-      sendMessage (Id cid) $ "<@" <> submitter <> ">: " <> getMoveString mv
       postGameImage gs
+      sendMessage (Id cid) $ "<@" <> submitter <> ">: " <> getLegalMoveString aigs mv
       gameOverCheck aigs $ return ()
     where
       gameOverCheck gamestate f
@@ -120,8 +120,13 @@ hiveBot (Message cid _ msg _ (Just (SChannelJoin _)) _) = do
   if Map.member gs (s^.userState.gameStates)
   then do
     let WaitingForPlayerToJoin hp = fst $ fromJust $ s^.userState.gameStates.at gs
+    sendMessage cid $ "<@" <> getUserWhoJoined msg^.getId <> ">: start " <> playerText (nextP hp)
     gameStart hp gs
   else sendMessage cid $ "<@" <> getUserWhoJoined msg^.getId <> ">: Would you like to play a game of Hive?"
+  where
+    nextP Player1 = Player2
+    nextP Player2 = Player1
+
 hiveBot m@(Message cid submitter msg _ _ _) = do
   liftIO $ print m
   s <- get

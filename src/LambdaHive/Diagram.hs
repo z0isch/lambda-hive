@@ -17,8 +17,7 @@ hiveHex gs pc = text (intercalate ">" stackText) # fontSizeL (0.35 / genericLeng
   where
     bs = bsCoords $ gsBoard gs
     hp = (Map.!) bs pc
-    stackText = map ((\p -> Text.unpack (hCannonicalId p) ++ "-" ++ show (hPieceId p))
-                . snd)
+    stackText = map (Text.unpack . hCannonicalId . snd)
               $ sortOn (\((_,_,h),_) -> -h)
               $ Map.toList $ Map.filterWithKey (\k _ -> axialEq pc k) bs
     color Player1 = lavender

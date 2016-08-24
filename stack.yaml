@@ -2,7 +2,12 @@ flags: {}
 extra-package-dbs: []
 packages:
 - '.'
+- location:
+    git: https://github.com/mpickering/slack-api
+    commit: ae3948e375ed56f1df6cf592287c0c69da0cee3f
+  extra-dep: true
 extra-deps:
 - igraph-0.1.1
 - slack-api-0.9
-resolver: lts-5.14
+- wuss-1.1.0
+resolver: lts-6.13

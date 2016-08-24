@@ -95,7 +95,6 @@ data HiveMove = NoOp
               | TopMove PieceMove PieceMove
               | FirstMove PieceMove
   deriving (Eq, Ord, Show, Generic, NFData)
-
 getMoveString :: HiveMove -> Text
 getMoveString NoOp = ""
 getMoveString (FirstMove pm) = getCannonicalId pm <> " ."
@@ -108,6 +107,31 @@ getMoveString (SlideMove pm1 pm2 n) = getCannonicalId pm1 <> " " <> nStr n pm2
     nStr RightN p = getCannonicalId p <> "-"
     nStr BottomRightN p = getCannonicalId p <> "\\"
 getMoveString (TopMove pm1 pm2) = getCannonicalId pm1 <> " " <> getCannonicalId pm2
+
+getLegalMoveString :: GameState -> HiveMove -> Text
+getLegalMoveString _ NoOp = ""
+getLegalMoveString _ (FirstMove pm) = getCannonicalId pm <> " ."
+getLegalMoveString _ (TopMove pm1 pm2) = getCannonicalId pm1 <> " " <> getCannonicalId pm2
+getLegalMoveString gs (SlideMove pm1 _ _) = getCannonicalId pm1 <> " " <> nStr newDirection validPieceCannonical
+    where
+      board = gsBoard gs
+      hp = getHivePieceFromCannonicalId gs $ getCannonicalId pm1
+      hPc = bsIdMap board Bimap.! hPieceId hp
+      ba = bsAdjacency board
+      validPC = fromJust $
+        head $
+        filter (topOfTheStack board . fromJust) $
+        map (getPieceCoord gs . hCannonicalId . getHivePieceFromId gs) $
+        IG.neighbours (hPieceId hp) ba
+      newDirection = getNeighborType hPc validPC
+      validPieceCannonical = hCannonicalId $ bsCoords board Map.! validPC
+      nStr TopLeftN p = "/" <> p
+      nStr LeftN p = "-" <> p
+      nStr BottomLeftN p = "\\" <> p
+      nStr TopRightN p = p <> "/"
+      nStr RightN p = p <> "-"
+      nStr BottomRightN p = p <> "\\"
+
 
 getCannonicalId :: PieceMove -> Text
 getCannonicalId (PieceMove p QueenMove) = playerText p <> "Q"
@@ -367,6 +391,16 @@ oneAway hs Beetle (x,y,_)  = groundLevel ++ beetleLevel
         beetleLevel = map (\(x2,y2,_) -> (x2,y2,hs Map.! (x2,y2)))
                       $ filter (\(x2,y2,_) -> Map.member (x2,y2) hs) groundLevel
 oneAway _ _ c = map (getNeighbor c) allDirections
+
+getNeighborType :: PieceCoordinate -> PieceCoordinate -> Neighbor
+getNeighborType (x1,y1,_) (x2,y2,_)
+  | x1 == x2 && y1 == y2-1 = TopLeftN
+  | x1 == x2-1 && y1 == y2 = LeftN
+  | x1 == x2-1 && y1 == y2+1 = BottomLeftN
+  | x1 == x2 && y1 == y2+1 = BottomRightN
+  | x1 == x2+1 && y1 == y2 = RightN
+  | x1 == x2+1 && y1 == y2-1 = TopRightN
+  | otherwise = error "Not diferectly next to piece"
 
 getNeighbor :: PieceCoordinate -> Neighbor -> PieceCoordinate
 getNeighbor (x,y,h) TopLeftN = (x,y-1,h)
